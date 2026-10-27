@@ -292,6 +292,17 @@ function renderDeck() {
   $("grid").replaceChildren(wrap);
   $("grid").classList.add("deckmode");
 }
+// Warm the browser cache with the next pack's card images once a pack is open: pick order, a few at a time, when idle.
+const preloaded = new Set();
+function preloadPack(n) {
+  if (typeof Image === "undefined" || (typeof navigator !== "undefined" && navigator.connection && navigator.connection.saveData)) return;
+  const urls = [];
+  for (const p of D.picks) if (p.pack === n) for (const c of p.cards) if (c.img && !preloaded.has(c.img)) { preloaded.add(c.img); urls.push(c.img); }
+  let i = 0;
+  const next = () => { if (i >= urls.length) return; const im = new Image(); im.onload = im.onerror = next; im.src = urls[i++]; };
+  const start = () => { for (let k = 0; k < 3; k++) next(); };
+  if (typeof requestIdleCallback === "function") requestIdleCallback(start); else setTimeout(start, 300);
+}
 function render() {
   const show = $("showPicks").checked;
   $("grid").classList.remove("deckmode"); $("grid").classList.remove("imgs"); $("imgsWrap").hidden = !hasImg;
@@ -306,6 +317,7 @@ function render() {
   $("sideTitle").textContent = gamesView ? "Opponent\u2019s cards" : deckView ? "Decklist" : "Picked so far";
   $("pool").hidden = deckView; $("decktext").hidden = !deckView; $("copy").hidden = !deckView;
   if (deckView) $("decktext").textContent = deckText();
+  if (!deckView && !gamesView && imgOn() && pack < lastPack) preloadPack(pack + 1);
   const pool = deckView || gamesView ? [] : D.picks.filter(q => q.pack < pack || (q.pack === pack && q.pick < pick) || (show && q.pack === pack && q.pick === pick));
   if (!gamesView) $("pool").replaceChildren(...pool.map(q => { const li = el("li");
     li.append(el("span", null, `${q.pack}.${q.pick}`), el("span", null, q.picked)); return li; }));

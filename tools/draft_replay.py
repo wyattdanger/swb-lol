@@ -35,10 +35,10 @@ EVENT_RE = re.compile(r"==> DraftCompleteDraft (\{.*\})\s*$")
 
 
 def load_names(grp_ids):
-    dbs = sorted((p for p in glob.glob(DB_GLOB) if os.path.getsize(p) > 0), key=os.path.getmtime)
-    if not dbs:
+    db = find_card_db()
+    if not db:
         return {}
-    con = sqlite3.connect(f"file:{quote(dbs[-1])}?mode=ro", uri=True)
+    con = sqlite3.connect(f"file:{quote(db)}?mode=ro", uri=True)
     names = {}
     ids = list(grp_ids)
     for i in range(0, len(ids), 500):
@@ -61,10 +61,10 @@ COLORS = {1: "W", 2: "U", 3: "B", 4: "R", 5: "G"}
 
 def load_meta(grp_ids):
     """grpId -> {colors, cost, types, rarity} for the JSON export."""
-    dbs = sorted((p for p in glob.glob(DB_GLOB) if os.path.getsize(p) > 0), key=os.path.getmtime)
-    if not dbs:
+    db = find_card_db()
+    if not db:
         return {}
-    con = sqlite3.connect(f"file:{quote(dbs[-1])}?mode=ro", uri=True)
+    con = sqlite3.connect(f"file:{quote(db)}?mode=ro", uri=True)
     meta = {}
     ids = list(grp_ids)
     for i in range(0, len(ids), 500):
@@ -83,7 +83,7 @@ def load_meta(grp_ids):
     return meta
 
 
-from games import parse_games  # noqa: E402  (tools/ is on sys.path when run as a script)
+from games import find_card_db, parse_games  # noqa: E402  (tools/ is on sys.path when run as a script)
 
 SCRYFALL_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scryfall_cache.json")
 
@@ -174,6 +174,7 @@ def main():
     ap.add_argument("logs", nargs="*", help="log files (default: Arena's Player-prev.log then Player.log)")
     ap.add_argument("--draft-id", help="which draft to show (default: the most recent)")
     ap.add_argument("--json", action="store_true", help="emit JSON instead of text")
+    ap.add_argument("--no-images", action="store_true", help="skip Scryfall image lookups (offline / tests)")
     ap.add_argument("--publish", metavar="SITE_DIR",
                     help="write the viewer page to SITE_DIR/drafts/<n>/index.html; n is stable per draft (tools/drafts.json)")
     args = ap.parse_args()
@@ -202,7 +203,7 @@ def main():
         game_names = set(re.findall(r"\{\{(.+?)\}\}", json.dumps(game_data, ensure_ascii=False)))
         game_names |= {n for m in game_data for g in m["games"] for n in g["opening"] + g["opponentCards"]}
         game_names |= {x["n"] for m in game_data for g in m["games"] for x in (g["sideboard"] or {}).get("in", []) + (g["sideboard"] or {}).get("out", [])}
-        imgs = scryfall_images({name(g) for g in all_ids if g in names} | game_names)
+        imgs = {} if args.no_images else scryfall_images({name(g) for g in all_ids if g in names} | game_names)
         card = lambda g: {"name": name(g), **meta.get(g, {}), **({"img": imgs[name(g)]} if name(g) in imgs else {})}
         out = {"draftId": draft_id, "event": dr["event"], "picks": []}
         if game_data:
@@ -219,7 +220,7 @@ def main():
             })
         if args.publish:
             here = os.path.dirname(os.path.abspath(__file__))
-            manifest_path = os.path.join(here, "drafts.json")
+            manifest_path = os.environ.get("DRAFTS_MANIFEST") or os.path.join(here, "drafts.json")
             manifest = json.load(open(manifest_path)) if os.path.exists(manifest_path) else {}
             if draft_id not in manifest:
                 manifest[draft_id] = max(manifest.values(), default=0) + 1

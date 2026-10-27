@@ -19,9 +19,16 @@ DB_GLOB = os.path.expanduser(
 HIDDEN_ZONES = {"Limbo", "Pending", "Revealed", "Command", "Sideboard"}
 
 
-def _lookups():
+def find_card_db():
+    """Arena's local card database; ARENA_CARD_DB overrides it (used by the tests)."""
+    if os.environ.get("ARENA_CARD_DB"):
+        return os.environ["ARENA_CARD_DB"]
     dbs = sorted((p for p in glob.glob(DB_GLOB) if os.path.getsize(p) > 0), key=os.path.getmtime)
-    con = sqlite3.connect(f"file:{quote(dbs[-1])}?mode=ro", uri=True)
+    return dbs[-1] if dbs else None
+
+
+def _lookups():
+    con = sqlite3.connect(f"file:{quote(find_card_db())}?mode=ro", uri=True)
     cache = {}
 
     def name(grp):
@@ -124,6 +131,8 @@ def parse_games(paths, event):
                     for m in json.loads(line)["greToClientEvent"]["greToClientMessages"]:
                         if m["type"].endswith("ConnectResp"):
                             last_deck = m["connectResp"]["deckMessage"]["deckCards"]
+                            if cur is not None and not cur["games"]:  # logged after the room opened: this match's deck
+                                cur["deck"] = last_deck
                 except Exception:
                     pass
                 # no `continue`: the same line also carries the game's first state messages
@@ -142,7 +151,10 @@ def parse_games(paths, event):
                 if g and cur["me"]:
                     _state(cur, g, name)
 
-    return [x for x in (finish(m) for m in matches if m["event"] == event) if x and x["games"]]
+    out = [x for x in (finish(m) for m in matches if m["event"] == event) if x and x["games"]]
+    for i, x in enumerate(out, 1):  # number within this event, not across every match in the logs
+        x["match"] = i
+    return out
 
 
 def _state(cur, g, name):
