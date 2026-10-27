@@ -1,0 +1,121 @@
+<title>Draft Replay</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: sticky pack/pick header over a grid of pack cards, picked card marked, pool listed beside. */
+:root{
+  --bg:#f5f5f2; --panel:#ffffff; --fg:#1d2024; --muted:#6b7078; --line:#dcdcd6; --accent:#2f5fb3; --pickbg:#e6eefb;
+  --W:#e9dfae; --U:#8db8e8; --B:#8a7f94; --R:#e58b74; --G:#86c28f; --M:#e0b95a; --C:#b9bcc2;
+  --font-ui:"IBM Plex Sans",system-ui,sans-serif; --font-mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#14161a; --panel:#1d2025; --fg:#e7e8ea; --muted:#979ba3; --line:#32363d; --accent:#7fa9ec; --pickbg:#22304a;
+  --W:#b8ad78; --U:#4f7fb0; --B:#6d6478; --R:#b5604d; --G:#4f8b59; --M:#b8933a; --C:#6b6f76; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#14161a; --panel:#1d2025; --fg:#e7e8ea; --muted:#979ba3; --line:#32363d; --accent:#7fa9ec; --pickbg:#22304a;
+  --W:#b8ad78; --U:#4f7fb0; --B:#6d6478; --R:#b5604d; --G:#4f8b59; --M:#b8933a; --C:#6b6f76; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-ui);font-size:15px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px}
+.wrap{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font-size:1.35rem;margin:0;font-weight:600;text-wrap:balance}
+.sub{color:var(--muted);font-family:var(--font-mono);font-size:.78rem;margin-top:4px;overflow-wrap:anywhere}
+.bar{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{background:var(--panel);color:var(--fg);border:0;padding:7px 14px;font:inherit;cursor:pointer;border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--bg);font-weight:600}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+label.chk{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:.85rem}
+.picks{display:flex;flex-wrap:wrap;gap:6px}
+.picks button{font-family:var(--font-mono);font-size:.78rem;min-width:34px;padding:6px 0;border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:4px;cursor:pointer}
+.picks button[aria-pressed="true"]{border-color:var(--accent);background:var(--pickbg);font-weight:600}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:20px;align-items:start}
+@media (max-width:760px){.main{grid-template-columns:minmax(0,1fr)}}
+.head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.head h2{margin:0;font-size:1.05rem;font-weight:600}
+.nav{display:flex;gap:6px}
+.nav button{padding:6px 12px;border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:6px;font:inherit;cursor:pointer}
+.nav button:disabled{opacity:.4;cursor:default}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.card{display:flex;flex-direction:column;gap:3px;min-width:0;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--C);border-radius:6px;padding:8px 10px}
+.card.W{border-left-color:var(--W)}.card.U{border-left-color:var(--U)}.card.B{border-left-color:var(--B)}
+.card.R{border-left-color:var(--R)}.card.G{border-left-color:var(--G)}.card.M{border-left-color:var(--M)}
+.card .n{font-weight:500;overflow-wrap:anywhere}
+.card .t{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:.78rem;font-family:var(--font-mono)}
+.card.picked.show{background:var(--pickbg);border-color:var(--accent);border-left-width:6px;box-shadow:0 0 0 1px var(--accent)}
+.card.picked.show .n::after{content:"  picked";font-family:var(--font-mono);font-size:.7rem;color:var(--accent);font-weight:600;margin-left:6px}
+aside{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+aside h3{margin:0 0 8px;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+aside ol{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px;font-size:.88rem}
+aside li{display:flex;gap:8px}aside li span:first-child{color:var(--muted);font-family:var(--font-mono);font-size:.75rem;min-width:2.4em}
+.hint{color:var(--muted);font-size:.8rem}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<div class="wrap">
+  <div><h1>Draft Replay</h1><div class="sub" id="sub"></div></div>
+  <div class="bar">
+    <div class="seg" id="packs" role="group" aria-label="Pack"></div>
+    <div class="seg" id="sort" role="group" aria-label="Sort cards by">
+      <button data-s="color" aria-pressed="true">Color</button><button data-s="cost" aria-pressed="false">Mana value</button><button data-s="seen" aria-pressed="false">Seen order</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="showPicks" checked> Show picks</label>
+  </div>
+  <div class="picks" id="picks" role="group" aria-label="Pick"></div>
+  <div class="main">
+    <section><div class="head"><h2 id="title"></h2><div class="nav"><button id="prev">&larr; Prev</button><button id="next">Next &rarr;</button></div></div>
+      <div class="grid" id="grid"></div><p class="hint">Arrow keys step through picks.</p></section>
+    <aside><h3>Picked so far</h3><ol id="pool"></ol></aside>
+  </div>
+</div>
+
+<script>
+const D = __DATA__;
+const $ = id => document.getElementById(id);
+const byKey = new Map(D.picks.map(p => [p.pack + "-" + p.pick, p]));
+const packs = [...new Set(D.picks.map(p => p.pack))];
+let pack = 1, pick = 1, sort = "color";
+const mv = c => { let n = 0; for (const m of (c.cost.match(/\{(\w)\}/g) || [])) { const v = m[1]; n += /\d/.test(v) ? +v : 1; } return n; };
+const colorKey = c => c.colors.length > 1 ? "M" : (c.colors || (c.types.includes("Land") ? "L" : "C"));
+const ORDER = "WUBRGMCL";
+const cls = c => colorKey(c) === "L" ? "C" : colorKey(c);
+function sorted(cards) {
+  const a = cards.map((c, i) => ({ c, i }));
+  if (sort === "color") a.sort((x, y) => ORDER.indexOf(colorKey(x.c)) - ORDER.indexOf(colorKey(y.c)) || mv(x.c) - mv(y.c) || x.i - y.i);
+  else if (sort === "cost") a.sort((x, y) => mv(x.c) - mv(y.c) || x.i - y.i);
+  return a.map(x => x.c);
+}
+function render() {
+  const p = byKey.get(pack + "-" + pick);
+  const show = $("showPicks").checked;
+  $("title").textContent = `Pack ${pack}, pick ${pick} · ${p.cards.length} card${p.cards.length > 1 ? "s" : ""}`;
+  $("grid").replaceChildren(...sorted(p.cards).map(c => {
+    const d = document.createElement("div");
+    d.className = "card " + cls(c) + (c.name === p.picked ? " picked" : "") + (show ? " show" : "");
+    const n = document.createElement("div"); n.className = "n"; n.textContent = c.name;
+    const t = document.createElement("div"); t.className = "t";
+    const ty = document.createElement("span"); ty.textContent = c.types.join(" ");
+    const co = document.createElement("span"); co.textContent = c.cost;
+    t.append(ty, co); d.append(n, t); return d;
+  }));
+  const pool = D.picks.filter(q => q.pack < pack || (q.pack === pack && q.pick < pick) || (show && q.pack === pack && q.pick === pick));
+  $("pool").replaceChildren(...pool.map(q => { const li = document.createElement("li");
+    const a = document.createElement("span"); a.textContent = `${q.pack}.${q.pick}`;
+    const b = document.createElement("span"); b.textContent = q.picked; li.append(a, b); return li; }));
+  for (const b of $("packs").children) b.setAttribute("aria-pressed", +b.dataset.p === pack);
+  for (const b of $("sort").children) b.setAttribute("aria-pressed", b.dataset.s === sort);
+  const n = D.picks.filter(q => q.pack === pack).length;
+  $("picks").replaceChildren(...Array.from({ length: n }, (_, i) => { const b = document.createElement("button");
+    b.textContent = i + 1; b.setAttribute("aria-label", `Pick ${i + 1}`); b.setAttribute("aria-pressed", i + 1 === pick);
+    b.onclick = () => { pick = i + 1; render(); }; return b; }));
+  const idx = D.picks.indexOf(p);
+  $("prev").disabled = idx === 0; $("next").disabled = idx === D.picks.length - 1;
+}
+function step(d) { const i = D.picks.indexOf(byKey.get(pack + "-" + pick)) + d; const q = D.picks[i]; if (q) { pack = q.pack; pick = q.pick; render(); } }
+$("sub").textContent = `${D.event || "Draft"} · ${D.picks.length} picks · ${D.draftId}`;
+$("packs").replaceChildren(...packs.map(n => { const b = document.createElement("button"); b.textContent = "Pack " + n; b.dataset.p = n;
+  b.onclick = () => { pack = n; pick = 1; render(); }; return b; }));
+for (const b of $("sort").children) b.onclick = () => { sort = b.dataset.s; render(); };
+$("showPicks").onchange = render; $("prev").onclick = () => step(-1); $("next").onclick = () => step(1);
+document.addEventListener("keydown", e => { if (e.key === "ArrowRight") step(1); else if (e.key === "ArrowLeft") step(-1); });
+render();
+</script>
