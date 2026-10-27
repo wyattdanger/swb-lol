@@ -101,12 +101,27 @@ describe("game narration", async () => {
   it("narrates turn by turn", () => {
     assert.deepEqual(g1.turns.map(t => [t.turn, t.who]), [[1, "You"], [2, "Opp"], [3, "You"]]);
     assert.deepEqual(g1.turns[0].events, ["You play {{Alpha Land}}", "You cast {{Beta Bear}}"]);
-    assert.deepEqual(g1.turns[1].events, ["Opp plays {{Epsilon Land}}"]);
-    assert.deepEqual(g1.turns[2].events, ["{{Beta Bear}} deals 2 damage to Opp", "Opp loses 2 life (20 → 18)", "You attack with {{Beta Bear}}"]);
+    assert.deepEqual(g1.turns[1].events, ["Opp plays {{Epsilon Land}}", "You get 2 poison counters"]);
+    assert.deepEqual(g1.turns[2].events, ["{{Beta Bear}} deals 2 damage to Opp", "Opp loses 2 life (20 → 18)",
+      "{{Beta Bear}} gets 1 counter", "You lose 1 poison counter", "You attack with {{Beta Bear}}"]);
   });
 
   it("records each turn's life totals at its end", () => {
     assert.deepEqual(g1.turns.map(t => t.life), [{ You: 20, Opp: 20 }, { You: 20, Opp: 20 }, { You: 20, Opp: 18 }]);
+  });
+
+  it("narrates a counter aimed at a player as poison, never as a card", () => {
+    // Counter events name their target by id. A player's seat number is not a card: it once read "a card gets 4 counters".
+    const events = matches.flatMap(m => m.games).flatMap(g => g.turns).flatMap(t => t.events);
+    assert.deepEqual(events.filter(e => /^a card gets/.test(e)), []);
+    assert.ok(events.includes("You get 2 poison counters"));
+    assert.ok(events.includes("{{Beta Bear}} gets 1 counter")); // a counter on a card still reads as a card's
+  });
+
+  it("tracks poison counters per player, and only records them while a player has some", () => {
+    assert.deepEqual(g1.turns.map(t => t.poison), [undefined, { You: 2 }, { You: 1 }]); // gained 2, then one removed
+    assert.ok(g1.turns.every(t => !("Opp" in (t.poison ?? {}))));                        // Opp never had any
+    assert.ok(g2.turns.every(t => !("poison" in t)));                                    // a game with none has no poison key
   });
 
   it("omits 'resolves' lines", () => {
@@ -339,6 +354,19 @@ describe("real log regression", { skip: !realLogHasDraft && "that draft is not i
         for (const g of m.games) got[`${m.match},${g.game}`] = [g.turns.length, g.mulligans, g.opening.length, g.onPlay, Boolean(g.sideboard)];
       }
       assert.deepEqual(got, EXPECTED);
+      // Poison: only match 1 game 1 (the opponent's infect Blightsteel Colossus). Three hits (4, 2 and 2 counters)
+      // that used to read "a card gets N counters".
+      const poisoned = [], events = [];
+      for (const m of await parseGames(realLogs, REAL_EVENT)) {
+        for (const g of m.games) {
+          events.push(...g.turns.flatMap(t => t.events));
+          if (g.turns.some(t => t.poison)) poisoned.push(`${m.match},${g.game}`);
+          if (m.match === 1 && g.game === 1) assert.equal(g.turns.at(-1).poison.You, 8);
+        }
+      }
+      assert.deepEqual(poisoned, ["1,1"]);
+      assert.deepEqual(events.filter(e => /poison counter/.test(e)), ["You get 4 poison counters", "You get 2 poison counters", "You get 2 poison counters"]);
+      assert.deepEqual(events.filter(e => /^a card gets/.test(e)), []);
     } finally {
       process.env.ARENA_CARD_DB = saved;
     }

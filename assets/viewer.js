@@ -98,7 +98,7 @@ function startViewer(D) {
       if (!$("pop").hidden && popFor === n) hidePop(); else { showPop(n, e); popFor = n; } };
   }
   function cref(n) { const s = el("span", "cref", n); if (D.images && D.images[n]) bindPop(s, n); return s; }
-  const KEY_EVENT = /\b(dies|is destroyed|is exiled|is countered)\b|\b(?:loses?|gains?) \d+ life\b|\bdeals \d+ damage\b/;
+  const KEY_EVENT = /\b(dies|is destroyed|is exiled|is countered)\b|\b(?:loses?|gains?) \d+ life\b|\bdeals \d+ damage\b|\bpoison counters?\b/;
   const ROUTINE_EVENT = /^(?:You draw |Opp draws |You plays? |Opp plays? )/;  // draws and land drops
   function evEl(text) { const d = el("div", "ev" + (KEY_EVENT.test(text) ? " key" : ROUTINE_EVENT.test(text) ? " routine" : "")); text.split(/\{\{(.+?)\}\}/).forEach((part, i) => d.append(i % 2 ? cref(part) : document.createTextNode(part))); return d; }
   // Shareable links: #deck, #games, #game-<match>-<game>, #pick-<pack>-<pick> (pack 1 pick 1 is the plain URL)
@@ -145,7 +145,10 @@ function startViewer(D) {
       wrap.append(o); }
     for (const t of g.turns) { const s = el("section", "turn " + (t.who === "You" ? "you" : "opp"));
       s.append(el("h3", "th", `Turn ${Math.ceil(t.turn / 2)} \u00b7 ${t.who}`)); // Arena counts each player's turn; show rounds
-      if (t.life) s.append(el("span", "life", `You ${t.life.You} \u00b7 Opp ${t.life.Opp}`));  // totals at the end of the turn
+      if (t.life) {  // totals at the end of the turn; poison counters show only for a player who has some
+        const side = who => `${who} ${t.life[who]}${t.poison?.[who] ? ` (${t.poison[who]} poison)` : ""}`;
+        s.append(el("span", "life", `${side("You")} \u00b7 ${side("Opp")}`));
+      }
       if (t.events.length) t.events.forEach(e => s.append(evEl(e))); else s.append(el("div", "ev quiet", "No actions"));
       wrap.append(s); }
     const end = el("div", "gend " + (won(cur) ? "win" : "loss"),

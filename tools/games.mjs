@@ -6,6 +6,8 @@
 import { findCardDb, lines, openCardDb } from "./arena.mjs";
 
 const HIDDEN_ZONES = new Set(["Limbo", "Pending", "Revealed", "Command", "Sideboard"]);
+// counter_type of a poison counter: in the real log it is the type on player seat 1 when an infect creature hit it.
+const POISON_COUNTER = 3;
 
 /**
  * grpId -> English name (or null), reading the card database lazily and remembering answers.
@@ -41,7 +43,7 @@ function det(a, key) {
 const verb = (p, word) => (p === "You" ? word : word + "s");
 
 const newGame = num => ({
-  num, obj: new Map(), zones: new Map(), life: new Map(), turns: [], opening: null, onPlay: null, result: null,
+  num, obj: new Map(), zones: new Map(), life: new Map(), poison: new Map(), turns: [], opening: null, onPlay: null, result: null,
   oppCards: new Set(), sideboard: null, // sideboard: { in, out } vs the deck used in the previous game
   mullReqs: 0, started: false,          // mulligan hands offered; true once real turn-1 play begins
 });
@@ -286,9 +288,19 @@ function state(cur, g, name) {
     } else if (T.has("TokenCreated") && ids.length) {
       const p = who(G.obj.get(ids[0])?.owner);
       emit(`${p} ${verb(p, "create")} ${card(ids[0])}`);
-    } else if (T.has("CounterAdded") && ids.length) {
-      const n = det(a, "transaction_amount") || 1;
-      emit(`${card(ids[0])} gets ${n} counter${n !== 1 ? "s" : ""}`);
+    } else if ((T.has("CounterAdded") || T.has("CounterRemoved")) && ids.length) {
+      const n = det(a, "transaction_amount") || 1, added = T.has("CounterAdded"), target = ids[0], s = n !== 1 ? "s" : "";
+      if (!G.obj.has(target) && (target === me || target === opp)) { // the target is a player's seat, not a permanent
+        const p = who(target);
+        if (det(a, "counter_type") === POISON_COUNTER) {
+          G.poison.set(target, Math.max(0, (G.poison.get(target) ?? 0) + (added ? n : -n)));
+          emit(`${p} ${verb(p, added ? "get" : "lose")} ${n} poison counter${s}`);
+        } else {
+          emit(`${p} ${verb(p, added ? "get" : "lose")} ${n} counter${s}`);
+        }
+      } else if (added) {
+        emit(`${card(target)} gets ${n} counter${s}`);
+      }
     }
   }
 
@@ -300,5 +312,9 @@ function state(cur, g, name) {
   const t = G.turns.at(-1);
   if (G.started && t && G.life.has(me) && G.life.has(opp)) { // end-of-turn life totals, shown in the turn headers
     t.life = { You: G.life.get(me), Opp: G.life.get(opp) };
+    const poison = {}; // only players who have some, so most turns carry no poison key at all
+    if ((G.poison.get(me) ?? 0) > 0) poison.You = G.poison.get(me);
+    if ((G.poison.get(opp) ?? 0) > 0) poison.Opp = G.poison.get(opp);
+    if (Object.keys(poison).length) t.poison = poison; else delete t.poison;
   }
 }

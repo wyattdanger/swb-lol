@@ -90,8 +90,9 @@ deck        { main[], side[] }   each card also has qty        // absent until a
 games[]     matches: { match, result: "won"|"lost", games[
               { game, onPlay: "You"|"Opp", mulligans, opening[names],
                 sideboard: { in[{n,q}], out[{n,q}] } | null,    // vs the deck used in the previous game
-                turns[ { turn, who, events[strings], life? } ], // turn is Arena's count (each player's turn);
-                                                                //   life = {You, Opp} at the end of the turn (optional)
+                turns[ { turn, who, events[strings], life?, poison? } ], // turn is Arena's count (each player's turn);
+                                       // life = {You, Opp} at the end of the turn (optional);
+                                       // poison = counters per player, only the players who have any (optional)
                 result: { winner, reason }, opponentCards[names] } ] }
 images      { cardName: url }    for names used in games
 ```
@@ -105,7 +106,8 @@ the literal string `"Opp"`.
   copyable Arena-import decklist), and Games (grouped by match; opening hand, sideboarding, turns, result).
 - **Header:** "Draft <n>", a friendly event name, the record, and the deck's colors; the draft id is a tooltip.
 - **Games view:** routine lines (draws, land drops) are dimmed, life changes, damage and deaths are bold, and each turn
-  header shows both life totals. Card names preview on hover, or on tap on touch screens.
+  header shows both life totals, with a player's poison counters beside theirs once they have any. Card names
+  preview on hover, or on tap on touch screens.
 - **Controls:** the pick strip and "Show picks" appear only in pick views; "Card images" in pick and deck views.
 - **Links:** the URL hash follows navigation: `#pick-<pack>-<pick>`, `#deck`, `#games`, `#game-<match>-<game>`.
   Pasting one into the address bar jumps there.

@@ -259,6 +259,17 @@ test('best-of-1 drafts get a flat list of games and a game record', () => {
   assert.deepEqual(groups(v)[0].children.map(b => b.textContent), ['Game 1 · W', 'Game 2 · W']);
 });
 
+test('poison shows beside the life total only for a player who has some', () => {
+  const heads = D => turns(load(D, { hash: '#games' })).map(t => t.children[1].textContent);
+  assert.deepEqual(heads(DATA), ['You 20 \u00b7 Opp 20', 'You 20 (2 poison) \u00b7 Opp 20', 'You 20 (1 poison) \u00b7 Opp 18']);
+  const both = clone(DATA); both.games[0].games[0].turns[2].poison = { You: 3, Opp: 1 };
+  assert.equal(heads(both)[2], 'You 20 (3 poison) \u00b7 Opp 18 (1 poison)');
+  const none = clone(DATA); none.games[0].games[0].turns.forEach(t => delete t.poison);       // no player has any
+  assert.ok(heads(none).every(h => !h.includes('poison')));
+  const zero = clone(DATA); zero.games[0].games[0].turns[1].poison = { You: 0 };              // zero is not shown either
+  assert.ok(!heads(zero)[1].includes('poison'));
+});
+
 test('a draft with no games or deck still renders and hides those tabs', () => {
   const D = clone(DATA); delete D.games; delete D.deck;
   const v = load(D);
@@ -334,13 +345,13 @@ test('routine lines are dimmed and the moments that matter are emphasized', () =
   const v = load(DATA, { hash: '#games' });
   const cls = t => turns(v)[t].children.filter(c => c.className.startsWith('ev')).map(c => c.className);
   assert.deepEqual(cls(0), ['ev routine', 'ev']);          // You play a land / You cast a spell
-  assert.deepEqual(cls(1), ['ev routine']);                // Opp plays a land
-  assert.deepEqual(cls(2), ['ev key', 'ev key', 'ev']);    // damage, life loss, then the attack line
+  assert.deepEqual(cls(1), ['ev routine', 'ev key']);      // Opp plays a land; you get poison counters
+  assert.deepEqual(cls(2), ['ev key', 'ev key', 'ev', 'ev key', 'ev']); // damage, life loss, a card's counter, poison removed, the attack
 });
 
 test('each turn header shows the life totals at the end of the turn, when the data has them', () => {
   const v = load(DATA, { hash: '#games' });
-  assert.deepEqual(turns(v).map(t => t.children[1].textContent), ['You 20 \u00b7 Opp 20', 'You 20 \u00b7 Opp 20', 'You 20 \u00b7 Opp 18']);
+  assert.deepEqual(turns(v).map(t => t.children[1].textContent), ['You 20 \u00b7 Opp 20', 'You 20 (2 poison) \u00b7 Opp 20', 'You 20 (1 poison) \u00b7 Opp 18']);
   assert.equal(turns(v)[0].children[1].className, 'life');
   const D = clone(DATA); D.games[0].games.forEach(g => g.turns.forEach(t => delete t.life));  // data from before life totals existed
   assert.ok(turns(load(D, { hash: '#games' })).every(t => t.children.every(c => c.className !== 'life')));

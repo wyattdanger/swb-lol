@@ -4,7 +4,8 @@
 // no Arena install, no network, and no personal data. It holds:
 //
 //   draft D1 (event "TestDraft"): pack 1 with 3 picks, pack 2 with 2 picks, a submitted deck, one best-of-3 match
-//     game 1: you on the play, mulligan to 3, a land, a spell, Opp's turn, an attack, you win
+//     game 1: you on the play, mulligan to 3, a land, a spell, Opp's turn (you get 2 poison counters), an attack
+//             (a counter on a card, and one poison counter removed), you win
 //     game 2: Opp on the play, you sideboard (Delta Sorcery out, Eta Charm in), Opp concedes
 //   draft D2 (event "TestDraft2"): 1 pick, no deck, no matches
 //
@@ -126,13 +127,16 @@ export function buildLog(path) {
     annotations: [zt(3, [101], 31, 33, "PlayLand"), zt(4, [102], 31, 35, "CastSpell"), zt(5, [102], 35, 33, "Resolve")] })));
   // turn 2: Opp plays a land
   add(gre(state(7, { type: "GameStateType_Diff", turnInfo: { turnNumber: 2, activePlayer: 2 },
-    gameObjects: [obj(201, 6, 2, 36)], annotations: [newTurn(6), zt(7, [201], 36, 33, "PlayLand")] })));
+    gameObjects: [obj(201, 6, 2, 36)], annotations: [newTurn(6), zt(7, [201], 36, 33, "PlayLand"),
+      { id: 11, affectorId: 201, affectedIds: [1], type: ["AnnotationType_CounterAdded"], details: det({ counter_type: 3, transaction_amount: 2 }) }] })));
   // turn 3: Beta Bear attacks, deals 2, Opp loses 2
   add(gre(state(8, { type: "GameStateType_Diff", turnInfo: { turnNumber: 3, activePlayer: 1 },
     gameObjects: [obj(102, 2, 1, 33, { attackState: "AttackState_Declared" })],
     annotations: [newTurn(8),
       { id: 9, affectorId: 102, affectedIds: [2], type: ["AnnotationType_DamageDealt"], details: det({ damage: 2, type: 1 }) },
-      { id: 10, affectedIds: [2], type: ["AnnotationType_ModifiedLife"], details: det({ life: -2 }) }] })));
+      { id: 10, affectedIds: [2], type: ["AnnotationType_ModifiedLife"], details: det({ life: -2 }) },
+      { id: 12, affectorId: 102, affectedIds: [102], type: ["AnnotationType_CounterAdded"], details: det({ counter_type: 1, transaction_amount: 1 }) },
+      { id: 13, affectorId: 102, affectedIds: [1], type: ["AnnotationType_CounterRemoved"], details: det({ counter_type: 3, transaction_amount: 1 }) }] })));
   add(gre(state(9, gameOver(1, "ResultReason_Game"))));
 
   // sideboarding: the client's reply is a pretty-printed multi-line block
