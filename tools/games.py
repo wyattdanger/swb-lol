@@ -126,7 +126,7 @@ def parse_games(paths, event):
                             last_deck = m["connectResp"]["deckMessage"]["deckCards"]
                 except Exception:
                     pass
-                continue
+                # no `continue`: the same line also carries the game's first state messages
             if cur is None or '"greToClientEvent"' not in line:
                 continue
             try:
