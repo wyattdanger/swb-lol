@@ -109,6 +109,11 @@ the literal string `"Opp"`.
   header shows both life totals, with a player's poison counters beside theirs once they have any. Card names
   preview on hover, or on tap on touch screens.
 - **Controls:** the pick strip and "Show picks" appear only in pick views; "Card images" in pick and deck views.
+- **Opening hand:** a row of full cards on wider screens; on phones, where seven cards would be 38px wide, it stacks
+  as title strips (name and cost readable, tap for the whole card). The phone rules sit at the end of `viewer.css`
+  because they must come after the base `.openrow` rules.
+- **Stepping:** Prev and Next (also the buttons under the cards and the arrow keys) walk one timeline: every pick,
+  then the deck, then every game in order (match 1 game 1, match 1 game 2, match 2 game 1, ...), and back the same way.
 - **Links:** the URL hash follows navigation: `#pick-<pack>-<pick>`, `#deck`, `#games`, `#game-<match>-<game>`.
   Pasting one into the address bar jumps there.
 - **Card art:** each card shows its oldest non-promo printing (promos can predate a card's first real set),

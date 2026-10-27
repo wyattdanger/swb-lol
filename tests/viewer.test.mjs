@@ -81,16 +81,20 @@ test('top bar lists the packs, then Deck, then Games, and has no sort control', 
   assert.ok(!VIEWER.includes('id="sort"'));
 });
 
-test('next/prev walk picks, then the deck, then games, and stop at both ends', () => {
+test('next/prev walk the picks, then the deck, then every game, and stop at both ends', () => {
   const v = load(DATA);
   assert.equal(v.els.prev.disabled, true);
   for (let i = 0; i < 4; i++) v.api.step(1);
   assert.deepEqual(v.api.st(), { deckView: false, gamesView: false, gameIdx: 0, pack: 2, pick: 2 });
   v.api.step(1); assert.equal(v.api.st().deckView, true);
-  v.api.step(1); assert.equal(v.api.st().gamesView, true);
-  assert.equal(v.els.next.disabled, true);
-  v.api.step(1); assert.equal(v.api.st().gamesView, true);
-  v.api.step(-1); assert.equal(v.api.st().deckView, true);
+  v.api.step(1); assert.deepEqual([v.api.st().gamesView, v.api.st().gameIdx], [true, 0]);   // the first game
+  assert.equal(v.els.next.disabled, false);                                                 // another game follows
+  v.api.step(1); assert.deepEqual([v.api.st().gamesView, v.api.st().gameIdx], [true, 1]);   // the second game
+  assert.equal(v.els.next.disabled, true);                                                  // the last stop
+  v.api.step(1); assert.deepEqual([v.api.st().gamesView, v.api.st().gameIdx], [true, 1]);   // Next at the end stays put
+  v.api.step(-1); assert.deepEqual([v.api.st().gamesView, v.api.st().gameIdx], [true, 0]);  // Prev steps back a game
+  v.api.step(-1); assert.equal(v.api.st().deckView, true);                                   // then to the deck
+  v.api.step(-1); assert.deepEqual([v.api.st().deckView, v.api.st().pack, v.api.st().pick], [false, 2, 2]);  // then the last pick
 });
 
 test('the URL hash follows navigation', () => {
@@ -299,7 +303,9 @@ test('Prev and Next are repeated under the cards, enabled and disabled together 
   assert.deepEqual([v.els.prev2.disabled, v.els.next2.disabled], [true, false]);          // first pick: nothing before it
   v.els.next2.onclick();
   assert.deepEqual([v.els.prev2.disabled, v.els.prev.disabled], [false, false]);
-  for (let i = 0; i < 5; i++) v.api.step(1);                                              // pick 2 -> ... -> deck -> games (the last view)
+  for (let i = 0; i < 5; i++) v.api.step(1);                                              // pick 2 -> ... -> deck -> the first game
+  assert.deepEqual([v.els.next2.disabled, v.els.next.disabled], [false, false]);          // the second game is still ahead
+  v.api.step(1);                                                                          // the last game
   assert.deepEqual([v.els.next2.disabled, v.els.next.disabled], [true, true]);
 });
 
@@ -321,6 +327,72 @@ test('pack tabs carry a short label for phones and keep the full name for screen
   assert.deepEqual([p2.textContent, p2.dataset.short], ['Pack 2', 'P2']);
   assert.equal(deck.dataset.short, undefined);
   assert.equal(games.dataset.short, undefined);                                           // Deck and Games stay as they are
+});
+
+// ---- stepping through the whole draft -----------------------------------------------------------
+const threeMatches = () => {                      // 3 best-of-3 matches = 6 games
+  const D = clone(DATA), m1 = D.games[0];
+  D.games = [m1, { ...clone(m1), match: 2 }, { ...clone(m1), match: 3 }];
+  return D;
+};
+
+test('Next walks every game across every match in order, and the URL follows', () => {
+  const v = load(threeMatches(), { hash: '#deck' });
+  const seen = [];
+  for (let i = 0; i < 6; i++) { v.api.step(1); seen.push([v.api.st().gameIdx, v.urls.at(-1)]); }
+  assert.deepEqual(seen, [[0, '#game-1-1'], [1, '#game-1-2'], [2, '#game-2-1'], [3, '#game-2-2'], [4, '#game-3-1'], [5, '#game-3-2']]);
+  assert.equal(v.els.next.disabled, true);
+  for (let i = 4; i >= 0; i--) { v.api.step(-1); assert.equal(v.api.st().gameIdx, i); }      // and all the way back
+  v.api.step(-1); assert.equal(v.api.st().deckView, true);
+});
+
+test('best-of-1 drafts step through their flat list of games the same way', () => {
+  const D = clone(DATA); const [g1, g2] = D.games[0].games; g2.game = 1;                      // in best-of-1 every match's one game is game 1
+  D.games = [{ match: 1, result: 'won', games: [g1] }, { match: 2, result: 'won', games: [g2] }];
+  const v = load(D, { hash: '#deck' });
+  v.api.step(1); assert.equal(v.urls.at(-1), '#game-1-1');
+  v.api.step(1); assert.equal(v.urls.at(-1), '#game-2-1');
+  assert.equal(v.els.next.disabled, true);
+});
+
+test('the bottom buttons and the arrow keys step through games too', () => {
+  const v = load(threeMatches(), { hash: '#game-1-1' });
+  v.els.next2.onclick();
+  assert.deepEqual([v.api.st().gameIdx, v.scrolls.length], [1, 1]);                          // and jump to the top
+  v.docListeners.keydown({ key: 'ArrowRight' });
+  assert.equal(v.api.st().gameIdx, 2);
+  v.docListeners.keydown({ key: 'ArrowLeft' }); v.docListeners.keydown({ key: 'ArrowLeft' });
+  assert.equal(v.api.st().gameIdx, 0);
+  v.els.prev2.onclick(); assert.equal(v.api.st().deckView, true);
+});
+
+test('stepping from the first game back to the picks and forward again lands in the same place', () => {
+  const v = load(threeMatches(), { hash: '#game-1-1' });
+  for (let i = 0; i < 6; i++) v.api.step(-1);                                                // game 1 -> deck -> back through 5 picks
+  assert.deepEqual([v.api.st().deckView, v.api.st().gamesView, v.api.st().pack, v.api.st().pick], [false, false, 1, 1]);
+  assert.equal(v.els.prev.disabled, true);
+  for (let i = 0; i < 6; i++) v.api.step(1);
+  assert.deepEqual([v.api.st().gamesView, v.api.st().gameIdx], [true, 0]);
+});
+
+test('a draft with a deck but no games ends at the deck; one with games but no deck goes from picks to games', () => {
+  const noGames = clone(DATA); delete noGames.games;
+  const a = load(noGames, { hash: '#deck' });
+  assert.equal(a.els.next.disabled, true);
+  const noDeck = clone(DATA); delete noDeck.deck;
+  const b = load(noDeck, { hash: '#pick-2-2' });
+  b.api.step(1);
+  assert.deepEqual([b.api.st().deckView, b.api.st().gamesView, b.api.st().gameIdx], [false, true, 0]);
+});
+
+test('phone styles stack the opening hand as title strips instead of squeezing a row of cards', () => {
+  // Layout needs a real browser, so this only guards the rule against being deleted; the look was checked on a phone-width page.
+  const css = fs.readFileSync(path.join(ROOT, 'assets', 'viewer.css'), 'utf8');
+  const base = css.indexOf('.openrow .ph{flex:1 1 0');            // the desktop rule: a flex item that shares the row
+  const phone = css.indexOf('.openrow .ph{flex:none;');           // the phone rule that must override it
+  assert.ok(base >= 0 && phone > base, 'the phone rule must come after the base rule: equal specificity, so the later one wins');
+  assert.ok(css.indexOf('.openrow{flex-direction:column') > css.indexOf('.openrow{display:flex'), 'same for the row container');
+  assert.match(css.slice(phone), /height:46px[^}]*overflow:hidden/);
 });
 
 // ---- header, readable turns, touch previews ---------------------------------------------------

@@ -134,3 +134,12 @@ aside li.opp span{min-width:0;color:var(--fg);font-family:var(--font-ui);font-si
 .hint{color:var(--muted);font-size:.8rem}
 @media (hover:none){.hint{display:none}} /* arrow keys mean nothing on a touch screen */
 #app>.loading{padding:20px;color:var(--muted);font-family:var(--font-mono)}
+
+/* Phone: the opening hand. Keep this AFTER the base .openrow rules above: it has the same specificity, so the later rule wins. */
+@media (max-width:520px){
+  /* Seven cards in one row are 38px wide on a phone. Stack them as title strips instead: every name and cost stays
+     readable, no card shows in full, and a tap previews the whole card. Desktop keeps the full-card row. */
+  .openrow{flex-direction:column;gap:4px}
+  .openrow .ph{flex:none;width:100%;max-width:none;aspect-ratio:auto;height:46px;overflow:hidden;border-radius:10px}
+  .openrow .ph .cimg{bottom:auto;height:auto;border-radius:10px}
+}

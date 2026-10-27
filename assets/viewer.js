@@ -11,7 +11,7 @@ const SKELETON = `<div class="wrap">
   <div class="main">
     <section><div class="head"><h2 id="title"></h2><div class="nav"><button id="prev">&larr; Prev</button><button id="next">Next &rarr;</button></div></div>
       <div class="grid" id="grid"></div>
-      <div class="nav navbottom"><button id="prev2">&larr; Prev</button><button id="next2">Next &rarr;</button></div><p class="hint">Arrow keys step through picks.</p></section>
+      <div class="nav navbottom"><button id="prev2">&larr; Prev</button><button id="next2">Next &rarr;</button></div><p class="hint">Arrow keys step through the picks, the deck and the games.</p></section>
     <aside><div class="sidehead"><h3 id="sideTitle">Picked so far</h3><button id="copy" hidden>Copy</button></div><ol id="pool"></ol><pre id="decktext" hidden></pre></aside>
   </div>
 <p class="foot">Unofficial fan project. Card images via <a href="https://scryfall.com" style="color:inherit">Scryfall</a>; Magic: The Gathering is &copy; Wizards of the Coast.</p>
@@ -221,17 +221,20 @@ function startViewer(D) {
       b.setAttribute("aria-label", `Pick ${i + 1}`); b.setAttribute("aria-pressed", !deckView && !gamesView && i + 1 === pick);
       b.onclick = () => { deckView = gamesView = false; pick = i + 1; render(); }; return b; });
     $("picks").replaceChildren(...btns);
-    const idx = gamesView ? D.picks.length + 1 : deckView ? D.picks.length : D.picks.indexOf(byKey.get(pack + "-" + pick));
-    const lastIdx = D.picks.length - 1 + (D.deck ? 1 : 0) + (allGames.length ? 1 : 0);
-    $("prev").disabled = $("prev2").disabled = idx === 0; $("next").disabled = $("next2").disabled = idx === lastIdx;
+    const idx = position();
+    $("prev").disabled = $("prev2").disabled = idx === 0; $("next").disabled = $("next2").disabled = idx === stops - 1;
   }
-  function step(d) {
-    const idx = gamesView ? D.picks.length + 1 : deckView ? D.picks.length : D.picks.indexOf(byKey.get(pack + "-" + pick));
-    const i = idx + d;
-    if (i === D.picks.length && D.deck) { deckView = true; gamesView = false; pack = lastPack; render(); return; }
-    if (i === D.picks.length + 1 && allGames.length) { gamesView = true; deckView = false; pack = lastPack; render(); return; }
-    const q = D.picks[i]; if (q) { deckView = gamesView = false; pack = q.pack; pick = q.pick; render(); }
+  // One timeline: every pick, then the deck, then every game in order. Prev/Next walk it end to end, both ways.
+  const deckAt = D.deck ? D.picks.length : -1, gamesAt = D.picks.length + (D.deck ? 1 : 0), stops = gamesAt + allGames.length;
+  const position = () => gamesView ? gamesAt + gameIdx : deckView ? deckAt : D.picks.indexOf(byKey.get(pack + "-" + pick));
+  function go(i) {
+    if (i < 0 || i >= stops) return;
+    if (i < D.picks.length) { const q = D.picks[i]; deckView = gamesView = false; pack = q.pack; pick = q.pick; }
+    else if (i === deckAt) { deckView = true; gamesView = false; pack = lastPack; }
+    else { gamesView = true; deckView = false; gameIdx = i - gamesAt; pack = lastPack; }
+    render();
   }
+  function step(d) { go(position() + d); }
   // Header: "Draft 1", then "Cube Draft · Powered Traditional · 3–0 in matches" and the deck's colors
   const prettyEvent = e => e ? e.replace(/_\d{8}$/, "").split("_").map(p => p.replace(/([a-z])([A-Z])/g, "$1 $2")).join(" \u00b7 ") : "Draft";
   const matchesWon = (D.games || []).filter(m => m.result === "won").length, gamesWon = allGames.filter(won).length;
