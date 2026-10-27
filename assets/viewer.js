@@ -10,7 +10,8 @@ const SKELETON = `<div class="wrap">
   <div class="picks" id="picks" role="group" aria-label="Pick"></div>
   <div class="main">
     <section><div class="head"><h2 id="title"></h2><div class="nav"><button id="prev">&larr; Prev</button><button id="next">Next &rarr;</button></div></div>
-      <div class="grid" id="grid"></div><p class="hint">Arrow keys step through picks.</p></section>
+      <div class="grid" id="grid"></div>
+      <div class="nav navbottom"><button id="prev2">&larr; Prev</button><button id="next2">Next &rarr;</button></div><p class="hint">Arrow keys step through picks.</p></section>
     <aside><div class="sidehead"><h3 id="sideTitle">Picked so far</h3><button id="copy" hidden>Copy</button></div><ol id="pool"></ol><pre id="decktext" hidden></pre></aside>
   </div>
 <p class="foot">Unofficial fan project. Card images via <a href="https://scryfall.com" style="color:inherit">Scryfall</a>; Magic: The Gathering is &copy; Wizards of the Coast.</p>
@@ -219,7 +220,7 @@ function startViewer(D) {
     $("picks").replaceChildren(...btns);
     const idx = gamesView ? D.picks.length + 1 : deckView ? D.picks.length : D.picks.indexOf(byKey.get(pack + "-" + pick));
     const lastIdx = D.picks.length - 1 + (D.deck ? 1 : 0) + (allGames.length ? 1 : 0);
-    $("prev").disabled = idx === 0; $("next").disabled = idx === lastIdx;
+    $("prev").disabled = $("prev2").disabled = idx === 0; $("next").disabled = $("next2").disabled = idx === lastIdx;
   }
   function step(d) {
     const idx = gamesView ? D.picks.length + 1 : deckView ? D.picks.length : D.picks.indexOf(byKey.get(pack + "-" + pick));
@@ -237,6 +238,7 @@ function startViewer(D) {
   if (D.deck) for (const L of "WUBRG") if (D.deck.main.some(c => c.colors.includes(L))) {
     const p = el("span", "pip " + L); p.title = { W: "White", U: "Blue", B: "Black", R: "Red", G: "Green" }[L]; $("sub").append(p); }
   const packBtns = packs.map(n => { const b = el("button", null, "Pack " + n); b.dataset.p = n;
+    b.dataset.short = "P" + n; b.setAttribute("aria-label", "Pack " + n);  // CSS shows "P1" on phones
     b.onclick = () => { deckView = gamesView = false; pack = n; pick = 1; render(); }; return b; });
   if (D.deck) { const b = el("button", null, "Deck"); b.dataset.p = "deck";
     b.onclick = () => { deckView = true; gamesView = false; pack = lastPack; render(); }; packBtns.push(b); }
@@ -250,6 +252,8 @@ function startViewer(D) {
     catch (e) { const r = document.createRange(); r.selectNodeContents($("decktext")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = "Selected"; }
     setTimeout(() => { b.textContent = "Copy"; }, 1500); };
   $("showPicks").onchange = render; $("imgs").onchange = render; $("prev").onclick = () => step(-1); $("next").onclick = () => step(1);
+  // The buttons under the cards jump back to the top, so you land on the next pick instead of its empty bottom
+  $("prev2").onclick = () => { step(-1); scrollTo(0, 0); }; $("next2").onclick = () => { step(1); scrollTo(0, 0); };
   document.addEventListener("click", () => { if (popFor) hidePop(); });
   if (typeof window !== "undefined") window.addEventListener("scroll", () => { if (popFor) hidePop(); }, { passive: true });
   document.addEventListener("keydown", e => { if (e.key === "ArrowRight") step(1); else if (e.key === "ArrowLeft") step(-1); });

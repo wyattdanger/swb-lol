@@ -40,7 +40,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
 
 // ---- stub DOM + page loader -------------------------------------------------------------------
 function load(D, { hash = '', saveData = false, touch = false } = {}) {
-  const els = {}, urls = [], listeners = {}, docListeners = {}, preloaded = [];
+  const els = {}, urls = [], listeners = {}, docListeners = {}, preloaded = [], scrolls = [];
   const mk = tag => ({
     tag, style: {}, children: [], _a: {}, dataset: {}, hidden: false, className: '', textContent: '', checked: true,
     classList: { _s: new Set(), add(c) { this._s.add(c); }, remove(c) { this._s.delete(c); } },
@@ -56,11 +56,11 @@ function load(D, { hash = '', saveData = false, touch = false } = {}) {
   const mod = { exports: {} };
   new Function('module', 'document', 'scrollTo', 'location', 'history', 'innerWidth', 'innerHeight', 'window', 'Image',
     'requestIdleCallback', 'navigator', 'matchMedia', VIEWER)(
-    mod, doc, () => {}, loc, { replaceState(a, b, u) { urls.push(u); } }, 1200, 800,
+    mod, doc, (...a) => scrolls.push(a), loc, { replaceState(a, b, u) { urls.push(u); } }, 1200, 800,
     { addEventListener(n, f) { listeners[n] = f; } }, FakeImage, f => f(), { connection: { saveData } },
     q => ({ matches: touch && q.includes('hover: none') }));
   const api = mod.exports.startViewer(D);
-  return { els, api, urls, loc, listeners, docListeners, preloaded };
+  return { els, api, urls, loc, listeners, docListeners, preloaded, scrolls };
 }
 
 const text = n => (n.tag === '#text' ? n.textContent : [n.textContent, ...(n.children || []).map(text)].join(''));
@@ -278,6 +278,37 @@ test('preloading is skipped on the last pack, outside pick views, and with data 
   assert.equal(load(DATA, { hash: '#games' }).preloaded.length, 0);
   assert.equal(load(DATA, { hash: '#pick-2-1' }).preloaded.length, 0);
   assert.equal(load(DATA, { saveData: true }).preloaded.length, 0);
+});
+
+// ---- bottom navigation and phone tab labels -------------------------------------------------------
+test('Prev and Next are repeated under the cards, enabled and disabled together with the top ones', () => {
+  const v = load(DATA);
+  assert.deepEqual([v.els.prev2.disabled, v.els.next2.disabled], [v.els.prev.disabled, v.els.next.disabled]);
+  assert.deepEqual([v.els.prev2.disabled, v.els.next2.disabled], [true, false]);          // first pick: nothing before it
+  v.els.next2.onclick();
+  assert.deepEqual([v.els.prev2.disabled, v.els.prev.disabled], [false, false]);
+  for (let i = 0; i < 5; i++) v.api.step(1);                                              // pick 2 -> ... -> deck -> games (the last view)
+  assert.deepEqual([v.els.next2.disabled, v.els.next.disabled], [true, true]);
+});
+
+test('the bottom buttons step and then jump to the top; the top ones just step', () => {
+  const v = load(DATA);
+  v.els.next2.onclick();
+  assert.deepEqual(v.api.st().pick, 2);
+  assert.deepEqual(v.scrolls, [[0, 0]]);
+  v.els.prev2.onclick();
+  assert.deepEqual([v.api.st().pick, v.scrolls.length], [1, 2]);
+  v.els.next.onclick();
+  assert.deepEqual([v.api.st().pick, v.scrolls.length], [2, 2]);                           // no scroll for the top button
+});
+
+test('pack tabs carry a short label for phones and keep the full name for screen readers', () => {
+  const v = load(DATA);
+  const [p1, p2, deck, games] = v.els.packs.children;
+  assert.deepEqual([p1.textContent, p1.dataset.short, p1._a['aria-label']], ['Pack 1', 'P1', 'Pack 1']);
+  assert.deepEqual([p2.textContent, p2.dataset.short], ['Pack 2', 'P2']);
+  assert.equal(deck.dataset.short, undefined);
+  assert.equal(games.dataset.short, undefined);                                           // Deck and Games stay as they are
 });
 
 // ---- header, readable turns, touch previews ---------------------------------------------------
