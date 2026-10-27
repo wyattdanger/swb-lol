@@ -10,6 +10,9 @@
 :root[data-theme="dark"]{
   --bg:#14161a; --panel:#1d2025; --fg:#e7e8ea; --muted:#979ba3; --line:#32363d; --accent:#7fa9ec; --pickbg:#22304a; --ring:#5cc8ff;
   --W:#b8ad78; --U:#4f7fb0; --B:#6d6478; --R:#b5604d; --G:#4f8b59; --M:#b8933a; --C:#6b6f76; color-scheme:dark}
+/* The viewer hides things with the hidden attribute. Without this, any rule that sets display (flex, grid...) wins over the
+   browser's own hidden rule and the element stays on screen. */
+[hidden]{display:none!important}
 body{background:var(--bg);color:var(--fg);font-family:var(--font-ui);font-size:15px;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px}
 .wrap{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:16px}

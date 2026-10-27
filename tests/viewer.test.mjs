@@ -395,6 +395,13 @@ test('phone styles stack the opening hand as title strips instead of squeezing a
   assert.match(css.slice(phone), /height:46px[^}]*overflow:hidden/);
 });
 
+test('the stylesheet makes the hidden attribute win over display rules', () => {
+  // The strip, "Show picks" and "Card images" are hidden with the attribute but are display:flex, which beats the browser's
+  // own hidden rule: they stayed on screen. The stub DOM only sees the attribute, so this guards the CSS that makes it work.
+  const css = fs.readFileSync(path.join(ROOT, 'assets', 'viewer.css'), 'utf8');
+  assert.match(css, /\[hidden\]\{display:none!important\}/);
+});
+
 // ---- header, readable turns, touch previews ---------------------------------------------------
 test('the header names the draft, shows a friendly event and the record, with the deck colors', () => {
   const D = clone(DATA); D.event = 'CubeDraft_PoweredTraditional_20261020'; D.number = 3;
