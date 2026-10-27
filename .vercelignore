@@ -3,3 +3,4 @@ tests
 .githooks
 docs
 README.md
+.playwright-mcp

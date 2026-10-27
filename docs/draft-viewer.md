@@ -28,9 +28,10 @@ Do this on the Mac that ran Arena. The logs only exist there.
    `drafts/<n>/index.html`. If the logs hold several drafts it lists them on stderr; pick one with
    `--draft-id <id>`. The first run for new cards needs internet (Scryfall image lookups, about 5 seconds);
    later runs use a local cache.
-4. **Look at it locally** (the page must be served over http; opening the file directly will not work):
+4. **Look at it locally** (the page must be served over http; opening the file directly will not work; `serve.py` sends
+   no-cache headers because Safari otherwise keeps showing an old viewer script after you edit it):
    ```sh
-   python3 -m http.server 8000      # then open http://localhost:8000/drafts/<n>/
+   python3 tools/serve.py           # then open http://127.0.0.1:8000/drafts/<n>/
    ```
 5. **Publish:**
    ```sh
@@ -68,6 +69,13 @@ python3 tools/draft_replay.py --rebuild .        # rewrite every page shell from
 
 You only need `--rebuild` if `tools/shell.html` itself changes. Viewer changes need nothing.
 
+```sh
+python3 tools/draft_replay.py --refresh-images .   # re-pick every card's image URL from the names saved in each data.json
+```
+
+Use `--refresh-images` after changing the art rules (`OLDEST_FILTERS` / `PINNED_SETS`) or if Scryfall moves an image.
+It needs no Arena logs, so it works on drafts whose logs are gone. A card whose lookup fails keeps its current URL.
+
 ## The data file (`schema: 1`)
 
 ```
@@ -79,7 +87,8 @@ deck        { main[], side[] }   each card also has qty        // absent until a
 games[]     matches: { match, result: "won"|"lost", games[
               { game, onPlay: "You"|"Opp", mulligans, opening[names],
                 sideboard: { in[{n,q}], out[{n,q}] } | null,    // vs the deck used in the previous game
-                turns[ { turn, who, events[strings] } ],        // turn is Arena's count (each player's turn)
+                turns[ { turn, who, events[strings], life? } ], // turn is Arena's count (each player's turn);
+                                                                //   life = {You, Opp} at the end of the turn (optional)
                 result: { winner, reason }, opponentCards[names] } ] }
 images      { cardName: url }    for names used in games
 ```
@@ -91,6 +100,10 @@ the literal string `"Opp"`.
 
 - **Views:** pack picks (card images, your pick ringed), the final deck (columns by mana value, a curve, and a
   copyable Arena-import decklist), and Games (grouped by match; opening hand, sideboarding, turns, result).
+- **Header:** "Draft <n>", a friendly event name, the record, and the deck's colors; the draft id is a tooltip.
+- **Games view:** routine lines (draws, land drops) are dimmed, life changes, damage and deaths are bold, and each turn
+  header shows both life totals. Card names preview on hover, or on tap on touch screens.
+- **Controls:** the pick strip and "Show picks" appear only in pick views; "Card images" in pick and deck views.
 - **Links:** the URL hash follows navigation: `#pick-<pack>-<pick>`, `#deck`, `#games`, `#game-<match>-<game>`.
   Pasting one into the address bar jumps there.
 - **Card art:** each card shows its oldest non-promo printing (promos can predate a card's first real set),

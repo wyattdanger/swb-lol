@@ -2,3 +2,5 @@
 .DS_Store
 # regenerable Scryfall name -> image URL cache
 tools/scryfall_cache.json
+# Playwright MCP output (screenshots, snapshots, logs)
+.playwright-mcp

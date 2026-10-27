@@ -301,3 +301,5 @@ def _state(cur, g, name):
         emit(f"{p} {_verb(p, 'attack')} with " + ", ".join(card(i) for i in ids))
     for blocker, atk in blockers:
         emit(f"{card(blocker)} blocks " + ", ".join(card(i) for i in atk))
+    if G.started and G.turns and me in G.life and opp in G.life:  # end-of-turn life totals, shown in the turn headers
+        G.turns[-1]["life"] = {"You": G.life[me], "Opp": G.life[opp]}

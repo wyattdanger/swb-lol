@@ -1,10 +1,10 @@
 // Draft viewer, shared by every draft page. boot.js fetches a draft's data.json and calls startViewer(D).
 // Editing this file (or viewer.css) changes every draft at once; no rebuild is needed.
 const SKELETON = `<div class="wrap">
-  <div><h1>Draft Replay</h1><div class="sub" id="sub"></div></div>
+  <div><h1 id="h1">Draft Replay</h1><div class="sub" id="sub"></div></div>
   <div class="bar">
     <div class="seg" id="packs" role="group" aria-label="Pack"></div>
-    <label class="chk"><input type="checkbox" id="showPicks" checked> Show picks</label>
+    <label class="chk" id="showPicksWrap"><input type="checkbox" id="showPicks" checked> Show picks</label>
     <label class="chk" id="imgsWrap" hidden><input type="checkbox" id="imgs" checked> Card images</label>
   </div>
   <div class="picks" id="picks" role="group" aria-label="Pick"></div>
@@ -67,7 +67,9 @@ function startViewer(D) {
   const groupOf = c => c.types.includes("Land") ? "Lands" : c.types.includes("Creature") ? "Creatures" : c.types.includes("Planeswalker") ? "Planeswalkers"
     : c.types.includes("Instant") ? "Instants" : c.types.includes("Sorcery") ? "Sorceries" : "Artifacts & enchantments";
   const total = list => list.reduce((n, c) => n + c.qty, 0);
-  const COLS = [["0\u20131", 1], ["2", 2], ["3", 3], ["4", 4], ["5", 5], ["6", 6], ["7+", 99]];
+  // The curve keeps every mana value; the columns merge the sparse top end so the whole deck fits in one row.
+  const CURVE = [["0\u20131", 1], ["2", 2], ["3", 3], ["4", 4], ["5", 5], ["6", 6], ["7+", 99]];
+  const COLS = [["0\u20131", 1], ["2", 2], ["3", 3], ["4", 4], ["5+", 99]];
   function deckChip(c) {
     const d = el("div", "chip " + cls(c));
     d.append(el("span", "cn", c.name));
@@ -84,12 +86,20 @@ function startViewer(D) {
   const bo1 = (D.games || []).every(m => m.games.length <= 1);
   const gameLabel = x => bo1 ? `Game ${x.m.match}` : `Match ${x.m.match} \u00b7 G${x.g.game}`;
   const won = x => x.g.result && x.g.result.winner === "You";
+  let popFor = null;  // the card whose preview a tap opened, so a second tap closes it
+  const touch = typeof matchMedia === "function" && matchMedia("(hover: none)").matches;
   function showPop(n, e) { const p = $("pop"); p.src = D.images[n]; p.hidden = false; movePop(e); }
   function movePop(e) { const p = $("pop"); p.style.left = Math.max(8, Math.min(e.clientX + 16, innerWidth - 256)) + "px"; p.style.top = Math.max(8, Math.min(e.clientY - 120, innerHeight - 350)) + "px"; }
-  function hidePop() { $("pop").hidden = true; }
-  function cref(n) { const s = el("span", "cref", n);
-    if (D.images && D.images[n]) { s.onmouseenter = e => showPop(n, e); s.onmousemove = movePop; s.onmouseleave = hidePop; } return s; }
-  function evEl(text) { const d = el("div", "ev"); text.split(/\{\{(.+?)\}\}/).forEach((part, i) => d.append(i % 2 ? cref(part) : document.createTextNode(part))); return d; }
+  function hidePop() { $("pop").hidden = true; popFor = null; }
+  function bindPop(node, n) {  // hover previews on desktop; on touch screens a tap opens it and another tap (or a scroll) closes it
+    node.onmouseenter = e => showPop(n, e); node.onmousemove = movePop; node.onmouseleave = hidePop;
+    node.onclick = e => { if (!touch) return; e.stopPropagation();
+      if (!$("pop").hidden && popFor === n) hidePop(); else { showPop(n, e); popFor = n; } };
+  }
+  function cref(n) { const s = el("span", "cref", n); if (D.images && D.images[n]) bindPop(s, n); return s; }
+  const KEY_EVENT = /\b(dies|is destroyed|is exiled|is countered)\b|\b(?:loses?|gains?) \d+ life\b|\bdeals \d+ damage\b/;
+  const ROUTINE_EVENT = /^(?:You draw |Opp draws |You plays? |Opp plays? )/;  // draws and land drops
+  function evEl(text) { const d = el("div", "ev" + (KEY_EVENT.test(text) ? " key" : ROUTINE_EVENT.test(text) ? " routine" : "")); text.split(/\{\{(.+?)\}\}/).forEach((part, i) => d.append(i % 2 ? cref(part) : document.createTextNode(part))); return d; }
   // Shareable links: #deck, #games, #game-<match>-<game>, #pick-<pack>-<pick> (pack 1 pick 1 is the plain URL)
   function currentHash() {
     if (gamesView) { const x = allGames[gameIdx]; return `#game-${x.m.match}-${x.g.game}`; }
@@ -130,10 +140,11 @@ function startViewer(D) {
       g.opening.forEach(n => { const img = D.images && D.images[n];
         if (!img) { row.append(cref(n)); return; }
         const c = imgEl({ name: n, img }, () => cref(n));
-        c.onmouseenter = e => showPop(n, e); c.onmousemove = movePop; c.onmouseleave = hidePop; row.append(c); });
+        bindPop(c, n); row.append(c); });
       wrap.append(o); }
     for (const t of g.turns) { const s = el("section", "turn " + (t.who === "You" ? "you" : "opp"));
       s.append(el("h3", "th", `Turn ${Math.ceil(t.turn / 2)} \u00b7 ${t.who}`)); // Arena counts each player's turn; show rounds
+      if (t.life) s.append(el("span", "life", `You ${t.life.You} \u00b7 Opp ${t.life.Opp}`));  // totals at the end of the turn
       if (t.events.length) t.events.forEach(e => s.append(evEl(e))); else s.append(el("div", "ev quiet", "No actions"));
       wrap.append(s); }
     const end = el("div", "gend " + (won(cur) ? "win" : "loss"),
@@ -141,25 +152,26 @@ function startViewer(D) {
     wrap.append(end);
     $("grid").replaceChildren(wrap);
     $("grid").classList.add("deckmode");
-    $("pool").replaceChildren(...g.opponentCards.map(n => { const li = el("li"); li.append(el("span", null, ""), cref(n)); return li; }));
+    $("pool").replaceChildren(...g.opponentCards.map(n => { const li = el("li"); li.className = "opp"; li.append(cref(n)); return li; }));
   }
   function renderDeck() {
     $("title").textContent = `Final deck \u00b7 ${total(D.deck.main)} main, ${total(D.deck.side)} sideboard`;
     const byColor = (x, y) => ORDER.indexOf(colorKey(x)) - ORDER.indexOf(colorKey(y)) || x.name.localeCompare(y.name);
     const spells = D.deck.main.filter(c => !c.types.includes("Land")), lands = D.deck.main.filter(c => c.types.includes("Land"));
-    const cols = COLS.map(([label, max], i) => {
-      const prev = i ? COLS[i - 1][1] : -1;
+    const bucket = defs => defs.map(([label, max], i) => {
+      const prev = i ? defs[i - 1][1] : -1;
       return { label, cards: spells.filter(c => mv(c) > prev && mv(c) <= max).sort(byColor) };
     }).filter(c => c.cards.length);
-    const peak = Math.max(...cols.map(c => total(c.cards)));
+    const cols = bucket(COLS), curveCols = bucket(CURVE);
+    const peak = Math.max(...curveCols.map(c => total(c.cards)));
     const curve = el("div", "curve");
-    for (const c of cols) { const n = total(c.cards), col = el("div", "cv");
+    for (const c of curveCols) { const n = total(c.cards), col = el("div", "cv");
       const bar = el("div", "bar"); bar.style.height = Math.round(n / peak * 56) + "px";
       col.append(el("span", "num", String(n)), bar, el("span", "lbl", c.label)); curve.append(col); }
     const row = el("div", "dcols"), on = imgOn();
     const addCol = (label, cards, n) => { const col = el("div", "dcol" + (on ? " stack" : "")); col.append(el("h3", "grp", `${label} (${n})`));
       cards.forEach(c => col.append(on ? stackCard(c) : deckChip(c))); row.append(col); };
-    for (const c of cols) addCol(c.label === "7+" ? "7+" : "MV " + c.label, c.cards, total(c.cards));
+    for (const c of cols) addCol("MV " + c.label, c.cards, total(c.cards));
     addCol("Lands", lands.sort(byColor), total(lands));
     const side = el("div", "dcol side"); side.append(el("h3", "grp", `Sideboard (${total(D.deck.side)})`));
     const sg = el("div", "sidegrid" + (on ? " sideimgs" : "")); D.deck.side.slice().sort((x, y) => mv(x) - mv(y) || byColor(x, y)).forEach(c => sg.append(on ? stackCard(c) : deckChip(c))); side.append(sg);
@@ -180,7 +192,9 @@ function startViewer(D) {
   }
   function render() {
     const show = $("showPicks").checked;
-    $("grid").classList.remove("deckmode"); $("grid").classList.remove("imgs"); $("imgsWrap").hidden = !hasImg;
+    $("grid").classList.remove("deckmode"); $("grid").classList.remove("imgs");
+    // controls only show where they do something: the pick strip and "Show picks" are for pick views, "Card images" for picks and the deck
+    $("imgsWrap").hidden = !hasImg || gamesView; $("showPicksWrap").hidden = deckView || gamesView; $("picks").hidden = deckView || gamesView;
     if (gamesView) renderGames();
     else if (deckView) renderDeck();
     else {
@@ -214,7 +228,14 @@ function startViewer(D) {
     if (i === D.picks.length + 1 && allGames.length) { gamesView = true; deckView = false; pack = lastPack; render(); return; }
     const q = D.picks[i]; if (q) { deckView = gamesView = false; pack = q.pack; pick = q.pick; render(); }
   }
-  $("sub").textContent = `${D.event || "Draft"} \u00b7 ${D.picks.length} picks \u00b7 ${D.draftId}`;
+  // Header: "Draft 1", then "Cube Draft · Powered Traditional · 3–0 in matches" and the deck's colors
+  const prettyEvent = e => e ? e.replace(/_\d{8}$/, "").split("_").map(p => p.replace(/([a-z])([A-Z])/g, "$1 $2")).join(" \u00b7 ") : "Draft";
+  const matchesWon = (D.games || []).filter(m => m.result === "won").length, gamesWon = allGames.filter(won).length;
+  const record = !allGames.length ? "" : bo1 ? ` \u00b7 ${gamesWon}\u2013${allGames.length - gamesWon}` : ` \u00b7 ${matchesWon}\u2013${D.games.length - matchesWon} in matches`;
+  $("h1").textContent = D.number ? `Draft ${D.number}` : "Draft Replay";
+  $("sub").textContent = prettyEvent(D.event) + record; $("sub").title = D.draftId || "";  // the id is a tooltip, not clutter
+  if (D.deck) for (const L of "WUBRG") if (D.deck.main.some(c => c.colors.includes(L))) {
+    const p = el("span", "pip " + L); p.title = { W: "White", U: "Blue", B: "Black", R: "Red", G: "Green" }[L]; $("sub").append(p); }
   const packBtns = packs.map(n => { const b = el("button", null, "Pack " + n); b.dataset.p = n;
     b.onclick = () => { deckView = gamesView = false; pack = n; pick = 1; render(); }; return b; });
   if (D.deck) { const b = el("button", null, "Deck"); b.dataset.p = "deck";
@@ -229,6 +250,8 @@ function startViewer(D) {
     catch (e) { const r = document.createRange(); r.selectNodeContents($("decktext")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = "Selected"; }
     setTimeout(() => { b.textContent = "Copy"; }, 1500); };
   $("showPicks").onchange = render; $("imgs").onchange = render; $("prev").onclick = () => step(-1); $("next").onclick = () => step(1);
+  document.addEventListener("click", () => { if (popFor) hidePop(); });
+  if (typeof window !== "undefined") window.addEventListener("scroll", () => { if (popFor) hidePop(); }, { passive: true });
   document.addEventListener("keydown", e => { if (e.key === "ArrowRight") step(1); else if (e.key === "ArrowLeft") step(-1); });
   render();
   return { step, st: () => ({ deckView, gamesView, gameIdx, pack, pick }) };  // st() is read by the specs

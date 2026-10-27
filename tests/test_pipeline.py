@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -17,6 +18,8 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import fixture  # noqa: E402
 import games  # noqa: E402
+import draft_replay as dr  # noqa: E402
+from test_scryfall import FakeScryfall, card  # noqa: E402
 
 SCRIPT = os.path.join(ROOT, "tools", "draft_replay.py")
 
@@ -112,6 +115,10 @@ class GameNarration(FixtureCase):
                          ["{{Beta Bear}} deals 2 damage to Opp", "Opp loses 2 life (20 → 18)",
                           "You attack with {{Beta Bear}}"])
 
+    def test_each_turn_records_the_life_totals_at_its_end(self):
+        self.assertEqual([t["life"] for t in self.g1["turns"]],
+                         [{"You": 20, "Opp": 20}, {"You": 20, "Opp": 20}, {"You": 20, "Opp": 18}])
+
     def test_resolves_lines_are_omitted(self):
         events = [e for m in self.matches for g in m["games"] for t in g["turns"] for e in t["events"]]
         self.assertFalse([e for e in events if e.endswith("resolves")])
@@ -138,6 +145,12 @@ class GameNarration(FixtureCase):
         blob = json.dumps(self.matches) + self.cli("--json", "--no-images", "--draft-id", "D1").stdout
         self.assertNotIn(fixture.ME_NAME, blob)
         self.assertNotIn(fixture.OPP_NAME, blob)
+
+
+class LandingPage(unittest.TestCase):
+    def test_has_an_icon_link_so_there_is_no_favicon_404(self):
+        with open(os.path.join(ROOT, "index.html")) as f:
+            self.assertIn('rel="icon"', f.read())
 
 
 class Publish(FixtureCase):
@@ -173,6 +186,7 @@ class Publish(FixtureCase):
             self.assertTrue(html.startswith("<!doctype html>"), "standards mode, not quirks mode")
             self.assertIn('<meta name="robots" content="noindex">', html)
             self.assertIn('name="viewport"', html)
+            self.assertIn('rel="icon"', html, "an icon link stops the browser requesting a missing favicon.ico")
             self.assertLess(html.index("/assets/viewer.js"), html.index("/assets/boot.js"))
             self.assertNotIn("Alpha Land", html)
             self.assertLess(len(html), 2000)
@@ -213,6 +227,90 @@ class Publish(FixtureCase):
             for n in ("1", "2"):
                 self.assertEqual(self.read(site, "drafts", n, "index.html"), good)
                 self.assertEqual(self.read(site, "drafts", n, "data.json"), data[n])
+
+
+class RefreshImages(FixtureCase):
+    """--refresh-images re-picks art from the names saved in data.json, with no logs involved."""
+
+    def setUp(self):
+        self.site = tempfile.TemporaryDirectory()
+        self.addCleanup(self.site.cleanup)
+        for d in ("D1", "D2"):
+            self.cli("--publish", self.site.name, "--no-images", "--draft-id", d)
+        self.cache = os.path.join(self.site.name, "cache.json")
+        mock.patch.object(dr, "SCRYFALL_CACHE", self.cache).start()
+        self.addCleanup(mock.patch.stopall)
+        self.names = [v[0] for v in fixture.CARDS.values()]
+
+    def path(self, n):
+        return os.path.join(self.site.name, "drafts", str(n), "data.json")
+
+    def load(self, n):
+        with open(self.path(n)) as f:
+            return json.load(f)
+
+    def fake(self):
+        cards = [card(n, f"O{i}", f"default-{n}.jpg") for i, n in enumerate(self.names)]
+        searches = {f"O{i}": [card(n, f"O{i}", f"new-{n}.jpg")] for i, n in enumerate(self.names)}
+        return FakeScryfall(cards, searches)
+
+    def refresh(self, fake):
+        with mock.patch.object(dr, "_scryfall_get", fake):
+            return dr.refresh_images(self.site.name)
+
+    def strip(self, data):
+        data = json.loads(json.dumps(data))
+        for p in data["picks"]:
+            for c in p["cards"]:
+                c.pop("img", None)
+        for z in (data.get("deck") or {}).values():
+            for c in z:
+                c.pop("img", None)
+        data.pop("images", None)
+        return data
+
+    def test_every_card_and_game_name_gets_its_new_url_without_any_logs(self):
+        self.assertEqual(self.refresh(self.fake()), [1, 2])
+        data = self.load(1)
+        cards = [c for p in data["picks"] for c in p["cards"]] + [c for z in data["deck"].values() for c in z]
+        self.assertTrue(cards and all(c["img"] == f"new-{c['name']}.jpg" for c in cards))
+        self.assertEqual(data["images"]["Alpha Land"], "new-Alpha Land.jpg")      # from the narration
+        self.assertEqual(data["images"]["Eta Charm"], "new-Eta Charm.jpg")        # from the sideboard box
+        self.assertEqual(data["images"]["Epsilon Land"], "new-Epsilon Land.jpg")  # an opponent card
+
+    def test_nothing_but_image_urls_changes(self):
+        before = self.load(1)
+        self.refresh(self.fake())
+        self.assertEqual(self.strip(self.load(1)), self.strip(before))
+
+    def test_a_draft_with_no_games_or_deck_is_refreshed_too(self):
+        self.refresh(self.fake())
+        self.assertTrue(all(c["img"] == f"new-{c['name']}.jpg" for p in self.load(2)["picks"] for c in p["cards"]))
+
+    def test_running_it_twice_changes_nothing(self):
+        self.refresh(self.fake())
+        once = open(self.path(1)).read()
+        self.refresh(self.fake())
+        self.assertEqual(open(self.path(1)).read(), once)
+
+    def test_the_images_map_is_sorted_so_republishing_never_makes_git_noise(self):
+        self.refresh(self.fake())
+        keys = list(self.load(1)["images"])
+        self.assertEqual(keys, sorted(keys))
+        self.assertEqual(list(dr.image_map({"b", "a", "c"}, {"a": "1", "b": "2", "c": "3"})), ["a", "b", "c"])
+
+    def test_image_map_skips_names_with_no_url_and_falls_back_to_the_old_one(self):
+        self.assertEqual(dr.image_map({"a", "b", "c"}, {"a": "new"}, {"b": "old", "a": "stale"}), {"a": "new", "b": "old"})
+
+    def test_a_failed_lookup_keeps_the_current_urls(self):
+        self.refresh(self.fake())
+        good = open(self.path(1)).read()
+        os.remove(self.cache)  # force real lookups, then make them fail
+
+        def offline(url, body=None):
+            raise OSError("network down")
+        self.refresh(offline)
+        self.assertEqual(open(self.path(1)).read(), good)
 
 
 @unittest.skipUnless(os.path.exists(os.path.expanduser(

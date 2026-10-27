@@ -39,8 +39,8 @@ const DATA = fixtureData();
 const clone = o => JSON.parse(JSON.stringify(o));
 
 // ---- stub DOM + page loader -------------------------------------------------------------------
-function load(D, { hash = '', saveData = false } = {}) {
-  const els = {}, urls = [], listeners = {}, preloaded = [];
+function load(D, { hash = '', saveData = false, touch = false } = {}) {
+  const els = {}, urls = [], listeners = {}, docListeners = {}, preloaded = [];
   const mk = tag => ({
     tag, style: {}, children: [], _a: {}, dataset: {}, hidden: false, className: '', textContent: '', checked: true,
     classList: { _s: new Set(), add(c) { this._s.add(c); }, remove(c) { this._s.delete(c); } },
@@ -49,17 +49,18 @@ function load(D, { hash = '', saveData = false } = {}) {
   });
   const doc = {
     getElementById: id => els[id] ?? (els[id] = mk('#' + id)),
-    createElement: t => mk(t), createTextNode: t => ({ tag: '#text', textContent: t }), addEventListener() {},
+    createElement: t => mk(t), createTextNode: t => ({ tag: '#text', textContent: t }), addEventListener(type, f) { docListeners[type] = f; },
   };
   class FakeImage { set src(v) { preloaded.push(v); if (this.onload) this.onload(); } }
   const loc = { hash, pathname: '/drafts/1/', search: '' };
   const mod = { exports: {} };
   new Function('module', 'document', 'scrollTo', 'location', 'history', 'innerWidth', 'innerHeight', 'window', 'Image',
-    'requestIdleCallback', 'navigator', VIEWER)(
+    'requestIdleCallback', 'navigator', 'matchMedia', VIEWER)(
     mod, doc, () => {}, loc, { replaceState(a, b, u) { urls.push(u); } }, 1200, 800,
-    { addEventListener(n, f) { listeners[n] = f; } }, FakeImage, f => f(), { connection: { saveData } });
+    { addEventListener(n, f) { listeners[n] = f; } }, FakeImage, f => f(), { connection: { saveData } },
+    q => ({ matches: touch && q.includes('hover: none') }));
   const api = mod.exports.startViewer(D);
-  return { els, api, urls, loc, listeners, preloaded };
+  return { els, api, urls, loc, listeners, docListeners, preloaded };
 }
 
 const text = n => (n.tag === '#text' ? n.textContent : [n.textContent, ...(n.children || []).map(text)].join(''));
@@ -147,6 +148,25 @@ test('the pick strip holds only pick numbers; Deck and Games live in the top bar
   assert.equal(load(DATA, { hash: '#deck' }).els.picks.children.length, 2);  // pack 2 has two picks
 });
 
+test('controls only show where they do something', () => {
+  const pick = load(DATA), deck = load(DATA, { hash: '#deck' }), games = load(DATA, { hash: '#games' });
+  assert.deepEqual([pick.els.picks.hidden, pick.els.showPicksWrap.hidden, pick.els.imgsWrap.hidden], [false, false, false]);
+  assert.deepEqual([deck.els.picks.hidden, deck.els.showPicksWrap.hidden, deck.els.imgsWrap.hidden], [true, true, false]);   // images still switch the deck view
+  assert.deepEqual([games.els.picks.hidden, games.els.showPicksWrap.hidden, games.els.imgsWrap.hidden], [true, true, true]);
+});
+
+test('the draft id is a tooltip, not part of the visible header', () => {
+  const D = clone(DATA); D.draftId = 'dc4589a5-2b62-40b3-afcf-8fb2d0eaa45a';
+  const v = load(D);
+  assert.ok(!v.els.sub.textContent.includes(D.draftId));
+  assert.equal(v.els.sub.title, D.draftId);
+});
+
+test('the opponent card list has no blank indent column', () => {
+  const v = load(DATA, { hash: '#games' });
+  assert.ok(v.els.pool.children.length > 0 && v.els.pool.children.every(li => li.className === 'opp' && li.children.length === 1));
+});
+
 // ---- deck view -------------------------------------------------------------------------------
 test('deck view groups by mana value, and the sidebar is an Arena-importable decklist', () => {
   const v = load(DATA, { hash: '#deck' });
@@ -157,6 +177,17 @@ test('deck view groups by mana value, and the sidebar is an Arena-importable dec
   assert.equal(v.els.decktext.textContent,
     'Deck\n1 Gamma Bolt\n1 Beta Bear\n1 Delta Sorcery\n2 Alpha Land\n\nSideboard\n1 Eta Charm');
   assert.equal(v.els.decktext.hidden, false);
+});
+
+test('the deck columns merge the sparse top end while the curve keeps every mana value', () => {
+  const D = clone(DATA);
+  const big = (name, cost) => ({ name, colors: 'B', types: ['Creature'], cost, rarity: 4, qty: 1 });
+  D.deck.main.push(big('Five Drop', '{3}{B}{B}'), big('Six Drop', '{4}{B}{B}'), big('Eight Drop', '{6}{B}{B}'));
+  const v = load(D, { hash: '#deck' });
+  const deck = v.els.grid.children[0];
+  assert.deepEqual(deck.children[1].children.map(c => c.children[0].textContent),
+    ['MV 0\u20131 (1)', 'MV 2 (1)', 'MV 3 (1)', 'MV 5+ (3)', 'Lands (2)']);                  // 5, 6 and 8 share one column
+  assert.deepEqual(deck.children[0].children.map(c => c.children[2].textContent), ['0\u20131', '2', '3', '5', '6', '7+']);  // the curve does not
 });
 
 test('the decklist text and Picked-so-far list swap by view', () => {
@@ -247,6 +278,63 @@ test('preloading is skipped on the last pack, outside pick views, and with data 
   assert.equal(load(DATA, { hash: '#games' }).preloaded.length, 0);
   assert.equal(load(DATA, { hash: '#pick-2-1' }).preloaded.length, 0);
   assert.equal(load(DATA, { saveData: true }).preloaded.length, 0);
+});
+
+// ---- header, readable turns, touch previews ---------------------------------------------------
+test('the header names the draft, shows a friendly event and the record, with the deck colors', () => {
+  const D = clone(DATA); D.event = 'CubeDraft_PoweredTraditional_20261020'; D.number = 3;
+  const v = load(D);
+  assert.equal(v.els.h1.textContent, 'Draft 3');
+  assert.equal(v.els.sub.textContent, 'Cube Draft \u00b7 Powered Traditional \u00b7 1\u20130 in matches');
+  assert.deepEqual(v.els.sub.children.map(c => c.className), ['pip U', 'pip R', 'pip G']);   // WUBRG order, colors of the deck
+  assert.equal(load(DATA).els.h1.textContent, 'Draft Replay');                               // no number in the data
+});
+
+test('the header record is games for best-of-1 and absent when there are no games', () => {
+  const bo1 = clone(DATA); const [g1, g2] = bo1.games[0].games;
+  bo1.games = [{ match: 1, result: 'won', games: [g1] }, { match: 2, result: 'won', games: [g2] }];
+  assert.ok(load(bo1).els.sub.textContent.endsWith('\u00b7 2\u20130'));
+  const none = clone(DATA); delete none.games;
+  assert.equal(load(none).els.sub.textContent, 'Test Draft');
+});
+
+test('routine lines are dimmed and the moments that matter are emphasized', () => {
+  const v = load(DATA, { hash: '#games' });
+  const cls = t => turns(v)[t].children.filter(c => c.className.startsWith('ev')).map(c => c.className);
+  assert.deepEqual(cls(0), ['ev routine', 'ev']);          // You play a land / You cast a spell
+  assert.deepEqual(cls(1), ['ev routine']);                // Opp plays a land
+  assert.deepEqual(cls(2), ['ev key', 'ev key', 'ev']);    // damage, life loss, then the attack line
+});
+
+test('each turn header shows the life totals at the end of the turn, when the data has them', () => {
+  const v = load(DATA, { hash: '#games' });
+  assert.deepEqual(turns(v).map(t => t.children[1].textContent), ['You 20 \u00b7 Opp 20', 'You 20 \u00b7 Opp 20', 'You 20 \u00b7 Opp 18']);
+  assert.equal(turns(v)[0].children[1].className, 'life');
+  const D = clone(DATA); D.games[0].games.forEach(g => g.turns.forEach(t => delete t.life));  // data from before life totals existed
+  assert.ok(turns(load(D, { hash: '#games' })).every(t => t.children.every(c => c.className !== 'life')));
+});
+
+const crefs = n => all(n, x => x.className === 'cref' && x.onclick);
+const tap = (n, x = 40, y = 60) => n.onclick({ stopPropagation() {}, clientX: x, clientY: y });
+const twoNames = v => { const seen = new Map(); for (const c of crefs(games(v))) if (!seen.has(c.textContent)) seen.set(c.textContent, c); return [...seen.values()].slice(0, 2); };
+
+test('on touch screens, tapping a card name previews it; tapping again, elsewhere, or scrolling closes it', () => {
+  const v = load(DATA, { hash: '#games', touch: true });
+  const [a, b] = twoNames(v);
+  assert.ok(a && b && a.textContent !== b.textContent);
+  tap(a); assert.equal(v.els.pop.hidden, false); assert.equal(v.els.pop.src, DATA.images[a.textContent]);
+  tap(a); assert.equal(v.els.pop.hidden, true);                                   // same name again closes it
+  tap(a); tap(b); assert.equal(v.els.pop.hidden, false); assert.equal(v.els.pop.src, DATA.images[b.textContent]);  // another name switches
+  v.docListeners.click(); assert.equal(v.els.pop.hidden, true);                    // tapping elsewhere closes it
+  tap(a); v.listeners.scroll(); assert.equal(v.els.pop.hidden, true);              // scrolling closes it
+});
+
+test('with a mouse, hover previews and clicking does nothing extra', () => {
+  const v = load(DATA, { hash: '#games' });
+  const [a] = twoNames(v);
+  tap(a); assert.equal(v.els.pop?.src, undefined);  // the preview element is untouched by a click
+  a.onmouseenter({ clientX: 5, clientY: 5 }); assert.equal(v.els.pop.src, DATA.images[a.textContent]);
+  a.onmouseleave(); assert.equal(v.els.pop.hidden, true);
 });
 
 // ---- shared assets: skeleton, boot script, and the shell ---------------------------------------

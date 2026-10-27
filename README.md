@@ -19,7 +19,7 @@ New project: its own folder of plain files, a doc in `docs/`, specs in `tests/`.
 ```
 index.html    landing page          docs/      one doc per project
 drafts/       draft viewer pages    tests/     specs for everything
-assets/       draft viewer JS/CSS   tools/     draft viewer generator (Python)
+assets/       draft viewer JS/CSS   tools/     draft viewer generator, plus serve.py
 ```
 
 `assets/` and `tools/` are draft-viewer-only for now; namespace them per project when a second one arrives.
@@ -28,7 +28,7 @@ assets/       draft viewer JS/CSS   tools/     draft viewer generator (Python)
 
 ```sh
 tests/run.sh                          # Python + Node specs, no network (developed on Python 3.9, Node 23)
-python3 -m http.server 8000           # preview at localhost:8000 (pages that fetch data need http)
+python3 tools/serve.py                # preview at http://127.0.0.1:8000 (no caching, so a reload shows edits)
 git config core.hooksPath .githooks   # once per clone: failing specs block a push
 ```
 

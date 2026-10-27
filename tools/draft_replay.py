@@ -163,6 +163,43 @@ def _oldest_image(oracle_id):
     return None
 
 
+def game_card_names(game_data):
+    """Every card name the game narration mentions (events, opening hands, opponent cards, sideboarding)."""
+    names = set(re.findall(r"\{\{(.+?)\}\}", json.dumps(game_data, ensure_ascii=False)))
+    for m in game_data:
+        for g in m["games"]:
+            names |= set(g["opening"]) | set(g["opponentCards"])
+            names |= {x["n"] for k in ("in", "out") for x in (g["sideboard"] or {}).get(k, [])}
+    return names
+
+
+def image_map(names, imgs, fallback=None):
+    """name -> url for the names that have one, in sorted order so the same draft always serializes the same."""
+    fallback = fallback or {}
+    return {n: imgs.get(n) or fallback[n] for n in sorted(names) if imgs.get(n) or fallback.get(n)}
+
+
+def refresh_images(site):
+    """Re-pick every card's image URL in each draft's data.json from the card names already saved there.
+    Needs no Arena logs. A card whose lookup fails keeps its current URL. Returns the draft numbers touched."""
+    touched = []
+    for path in sorted(glob.glob(os.path.join(site, "drafts", "*", "data.json"))):
+        with open(path) as f:
+            data = json.load(f)
+        cards = [c for p in data["picks"] for c in p["cards"]] + [c for z in (data.get("deck") or {}).values() for c in z]
+        game_names = game_card_names(data.get("games", []))
+        imgs = scryfall_images({c["name"] for c in cards} | game_names)
+        for c in cards:
+            if c["name"] in imgs:
+                c["img"] = imgs[c["name"]]
+        if "games" in data:
+            data["images"] = image_map(game_names, imgs, data.get("images"))
+        with open(path, "w") as f:
+            json.dump(data, f, separators=(",", ":"), ensure_ascii=False)
+        touched.append(int(os.path.basename(os.path.dirname(path))))
+    return touched
+
+
 def scryfall_images(names):
     """card name -> image URL of that card's OLDEST printing. Cached on disk; only unseen names hit the API."""
     cache = {}
@@ -262,7 +299,15 @@ def main():
                          "n is stable per draft, found by scanning existing data files")
     ap.add_argument("--rebuild", metavar="SITE_DIR",
                     help="rewrite every draft page shell under SITE_DIR from tools/shell.html (no logs needed)")
+    ap.add_argument("--refresh-images", metavar="SITE_DIR",
+                    help="re-pick every card's image URL in each draft's data.json from its saved card names "
+                         "(no logs needed; uses the cache, so only unseen names hit Scryfall)")
     args = ap.parse_args()
+
+    if args.refresh_images:
+        for n in refresh_images(args.refresh_images):
+            print(f"refreshed images in {args.refresh_images}/drafts/{n}/data.json")
+        return
 
     if args.rebuild:
         for n in rebuild_shells(args.rebuild):
@@ -290,15 +335,13 @@ def main():
     if args.json or args.publish:
         meta = load_meta(all_ids)
         game_data = parse_games([p for p in logs if os.path.exists(p)], dr["event"]) if dr["event"] else []
-        game_names = set(re.findall(r"\{\{(.+?)\}\}", json.dumps(game_data, ensure_ascii=False)))
-        game_names |= {n for m in game_data for g in m["games"] for n in g["opening"] + g["opponentCards"]}
-        game_names |= {x["n"] for m in game_data for g in m["games"] for x in (g["sideboard"] or {}).get("in", []) + (g["sideboard"] or {}).get("out", [])}
+        game_names = game_card_names(game_data)
         imgs = {} if args.no_images else scryfall_images({name(g) for g in all_ids if g in names} | game_names)
         card = lambda g: {"name": name(g), **meta.get(g, {}), **({"img": imgs[name(g)]} if name(g) in imgs else {})}
         out = {"draftId": draft_id, "event": dr["event"], "picks": []}
         if game_data:
             out["games"] = game_data
-            out["images"] = {n: imgs[n] for n in game_names if n in imgs}
+            out["images"] = image_map(game_names, imgs)
         if deck:
             zone = lambda z: [{**card(c["cardId"]), "qty": c["quantity"]} for c in deck.get(z, [])]
             out["deck"] = {"main": zone("MainDeck"), "side": zone("Sideboard")}
