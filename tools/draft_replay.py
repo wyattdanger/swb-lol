@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 import urllib.parse
 import urllib.request
 import sys
@@ -114,49 +115,101 @@ def rebuild_shells(site):
     return nums
 
 
-SCRYFALL_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scryfall_cache.json")
+SCRYFALL_CACHE = os.path.join(HERE, "scryfall_cache.json")
+CACHE_VERSION = 2  # v1 held the newest printing's image; bumping this discards old entries
+SCRYFALL_HEADERS = {"Accept": "application/json", "User-Agent": "swb-lol-draft-replay/1.0"}
+# Printings skipped when choosing the oldest art: promos (one can predate a card's first set), gold-bordered
+# tournament decks, memorabilia, oversized cards, and non-English prints. Alpha and Beta are skipped too, so a
+# card first printed there shows its Unlimited printing instead.
+OLDEST_FILTERS = "-is:promo -border:gold -set_type:memorabilia -is:oversized lang:en -set:lea -set:leb"
+# Cards pinned to a specific set's printing instead of their oldest: card name -> set code.
+# Basic lands use the full-art Unhinged ones.
+PINNED_SETS = {basic: "unh" for basic in ("Plains", "Island", "Swamp", "Mountain", "Forest")}
+
+
+def _scryfall_get(url, body=None):
+    """One polite Scryfall request (they ask for 50-100ms between calls). Tests replace this."""
+    time.sleep(0.1)
+    headers = dict(SCRYFALL_HEADERS, **({"Content-Type": "application/json"} if body is not None else {}))
+    req = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None, headers=headers)
+    return json.load(urllib.request.urlopen(req, timeout=20))
+
+
+def _image(card):
+    return (card.get("image_uris") or card["card_faces"][0]["image_uris"])["normal"]
+
+
+def _first_image(q):
+    """Image of the first printing a search returns, with printings sorted oldest first; None if there is none."""
+    try:
+        results = _scryfall_get("https://api.scryfall.com/cards/search?" + urllib.parse.urlencode(
+            {"q": q, "unique": "prints", "order": "released", "dir": "asc"}))["data"]
+    except Exception:  # Scryfall answers 404 when a search has no results
+        return None
+    for card in results:
+        try:
+            return _image(card)
+        except KeyError:
+            continue
+    return None
+
+
+def _oldest_image(oracle_id):
+    """Image of the card's earliest printing; None if Scryfall has no usable printing."""
+    for filters in (OLDEST_FILTERS, ""):  # if the filters exclude every printing, retry without them
+        url = _first_image(f"oracleid:{oracle_id} {filters}".strip())
+        if url:
+            return url
+    return None
 
 
 def scryfall_images(names):
-    """card name -> Scryfall 'normal' image URL. Cached on disk; only unseen names hit the API."""
-    cache = json.load(open(SCRYFALL_CACHE)) if os.path.exists(SCRYFALL_CACHE) else {}
-    todo = sorted(n for n in set(names) if n not in cache)
+    """card name -> image URL of that card's OLDEST printing. Cached on disk; only unseen names hit the API."""
+    cache = {}
+    if os.path.exists(SCRYFALL_CACHE):
+        with open(SCRYFALL_CACHE) as f:
+            cache = json.load(f)
+    if cache.get("_v") != CACHE_VERSION or cache.get("filters") != OLDEST_FILTERS:  # the selection rule changed
+        cache = {"_v": CACHE_VERSION, "filters": OLDEST_FILTERS, "images": {}}
+    images = cache["images"]
+    pins = cache.setdefault("pins", {})  # which set each pinned card's cached image was chosen from
+    for name, code in PINNED_SETS.items():
+        if pins.get(name) != code:  # pin added or changed since this entry was cached: look it up again
+            images.pop(name, None)
+    todo = sorted(n for n in set(names) if n not in images)
+    if todo:
+        print(f"# looking up the oldest printing of {len(todo)} cards on Scryfall (first run only)...", file=sys.stderr)
     for i in range(0, len(todo), 75):
         chunk = todo[i : i + 75]
-        req = urllib.request.Request(
-            "https://api.scryfall.com/cards/collection",
-            data=json.dumps({"identifiers": [{"name": n} for n in chunk]}).encode(),
-            headers={"Content-Type": "application/json", "Accept": "application/json",
-                     "User-Agent": "swb-lol-draft-replay/1.0"},
-        )
         try:
-            resp = json.load(urllib.request.urlopen(req, timeout=20))
-            data = resp["data"]
+            data = _scryfall_get("https://api.scryfall.com/cards/collection",
+                                 {"identifiers": [{"name": n} for n in chunk]})["data"]
         except Exception as e:  # offline or rate-limited: render without images
             print(f"# scryfall lookup failed ({e}); continuing without images for {len(chunk)} cards", file=sys.stderr)
             continue
         by_name = {}
         for c in data:
-            uris = c.get("image_uris") or c["card_faces"][0]["image_uris"]
-            by_name[c["name"]] = by_name[c["name"].split(" // ")[0]] = uris["normal"]
+            by_name[c["name"]] = by_name[c["name"].split(" // ")[0]] = c
         for n in chunk:
-            if n in by_name:
-                cache[n] = by_name[n]
-        # Arena names can differ from Scryfall's in accents (bulk lookup returns them under the accented name),
-        # so anything left unmapped goes through the fuzzy endpoint, which tolerates that.
-        for n in chunk:
-            if n in cache:
-                continue
-            try:
-                c = json.load(urllib.request.urlopen(urllib.request.Request(
-                    "https://api.scryfall.com/cards/named?fuzzy=" + urllib.parse.quote(n),
-                    headers={"Accept": "application/json", "User-Agent": "swb-lol-draft-replay/1.0"}), timeout=20))
-                cache[n] = (c.get("image_uris") or c["card_faces"][0]["image_uris"])["normal"]
-            except Exception as e:
-                print(f"# no image for {n!r}: {e}", file=sys.stderr)
+            card = by_name.get(n)
+            if card is None:
+                # Arena names can differ from Scryfall's in accents (bulk lookup returns them under the accented
+                # name), so anything unmapped goes through the fuzzy endpoint, which tolerates that.
+                try:
+                    card = _scryfall_get("https://api.scryfall.com/cards/named?fuzzy=" + urllib.parse.quote(n))
+                except Exception as e:
+                    print(f"# no image for {n!r}: {e}", file=sys.stderr)
+                    continue
+            oracle_id = card.get("oracle_id") or card["card_faces"][0].get("oracle_id")
+            code = PINNED_SETS.get(n)
+            url = _first_image(f"oracleid:{oracle_id} set:{code}") if code and oracle_id else None
+            url = url or (_oldest_image(oracle_id) if oracle_id else None)
+            images[n] = url or _image(card)  # fall back to Scryfall's default printing
+            if code:
+                pins[n] = code
     with open(SCRYFALL_CACHE, "w") as f:
         json.dump(cache, f, indent=1, sort_keys=True)
-    return cache
+    return {n: images[n] for n in set(names) if n in images}
 
 
 def parse(paths):

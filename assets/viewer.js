@@ -202,10 +202,6 @@ function startViewer(D) {
     const btns = Array.from({ length: n }, (_, i) => { const b = el("button", null, String(i + 1));
       b.setAttribute("aria-label", `Pick ${i + 1}`); b.setAttribute("aria-pressed", !deckView && !gamesView && i + 1 === pick);
       b.onclick = () => { deckView = gamesView = false; pick = i + 1; render(); }; return b; });
-    if (D.deck && pack === lastPack) { const b = el("button", "deckbtn", "Deck"); b.setAttribute("aria-pressed", deckView);
-      b.onclick = () => { deckView = true; gamesView = false; render(); }; btns.push(b); }
-    if (allGames.length && pack === lastPack) { const b = el("button", "deckbtn", "Games"); b.setAttribute("aria-pressed", gamesView);
-      b.onclick = () => { gamesView = true; deckView = false; render(); }; btns.push(b); }
     $("picks").replaceChildren(...btns);
     const idx = gamesView ? D.picks.length + 1 : deckView ? D.picks.length : D.picks.indexOf(byKey.get(pack + "-" + pick));
     const lastIdx = D.picks.length - 1 + (D.deck ? 1 : 0) + (allGames.length ? 1 : 0);

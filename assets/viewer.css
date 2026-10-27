@@ -66,7 +66,6 @@ h3.grp{margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid var(--line)}
 .drow .dc{color:var(--muted);font-family:var(--font-mono);font-size:.75rem}
 h3.grp{margin:16px 0 8px;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
 h3.grp:first-child{margin-top:0}
-.picks .deckbtn{padding-inline:12px;margin-left:8px}
 .sidehead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
 .sidehead h3{margin:0}
 #copy{border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:5px;padding:3px 10px;font:inherit;font-size:.8rem;cursor:pointer}

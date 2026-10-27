@@ -93,6 +93,9 @@ the literal string `"Opp"`.
   copyable Arena-import decklist), and Games (grouped by match; opening hand, sideboarding, turns, result).
 - **Links:** the URL hash follows navigation: `#pick-<pack>-<pick>`, `#deck`, `#games`, `#game-<match>-<game>`.
   Pasting one into the address bar jumps there.
+- **Card art:** each card shows its oldest non-promo printing (promos can predate a card's first real set),
+  skipping Alpha and Beta so those cards show Unlimited (`OLDEST_FILTERS` in `tools/draft_replay.py`). Basic lands are pinned to the full-art Unhinged printings; `PINNED_SETS` in `tools/draft_replay.py` is the table
+  to edit. Changing a pin makes the next run re-look-up just those cards.
 - **Images:** loaded from Scryfall's CDN, never stored here. Cards show their name until the image arrives. The
   next pack's images are preloaded in the background (skipped when the browser asks to save data).
 - **Best-of-1:** if every match has one game, tabs are a flat `Game 1, Game 2, ...` list with a game record.

@@ -139,6 +139,14 @@ test('"Show picks" off hides the marker; "Card images" off falls back to text ch
   assert.ok(v.els.grid.children.every(c => c.className.startsWith('card')));
 });
 
+test('the pick strip holds only pick numbers; Deck and Games live in the top bar alone', () => {
+  for (const hash of ['', '#pick-2-2', '#deck', '#games']) {
+    const v = load(DATA, { hash });
+    assert.ok(v.els.picks.children.every(b => /^\d+$/.test(b.textContent)), hash);
+  }
+  assert.equal(load(DATA, { hash: '#deck' }).els.picks.children.length, 2);  // pack 2 has two picks
+});
+
 // ---- deck view -------------------------------------------------------------------------------
 test('deck view groups by mana value, and the sidebar is an Arena-importable decklist', () => {
   const v = load(DATA, { hash: '#deck' });
