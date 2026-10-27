@@ -27,16 +27,16 @@ assets/       draft viewer JS/CSS   tools/     draft viewer generator (Python)
 ## Dev
 
 ```sh
-tests/run.sh                          # Python + Node specs, no network (needs Python 3, Node 20+)
+tests/run.sh                          # Python + Node specs, no network (developed on Python 3.9, Node 23)
 python3 -m http.server 8000           # preview at localhost:8000 (pages that fetch data need http)
 git config core.hooksPath .githooks   # once per clone: failing specs block a push
 ```
 
 ## Deploy
 
-Vercel, preset "Other", no build command; meant to deploy on every push to `main`. `.vercelignore` lists what
-isn't published (`tools`, `tests`, `docs`, ...). `swb.lol` is registered at Dynadot with its name servers pointed
-at Vercel, which manages the DNS.
+Vercel serves the repo root as a plain static site (no build step) and is meant to deploy on every push to
+`main`. `.vercelignore` lists what isn't published to swb.lol (`tools`, `tests`, `docs`, ...); the files are still
+visible on GitHub if the repo is public. DNS for `swb.lol` is managed in Vercel.
 
 ## Privacy
 
