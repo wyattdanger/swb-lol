@@ -9,6 +9,7 @@ import glob
 import json
 import os
 import re
+from collections import Counter
 import sqlite3
 from urllib.parse import quote
 
@@ -52,12 +53,13 @@ class _Game:
         self.num, self.obj, self.zones, self.life = num, {}, {}, {}
         self.turns, self.opening, self.on_play, self.result = [], None, None, None
         self.opp_cards = {}
+        self.sideboard = None  # {"in": [...], "out": [...]} vs the deck used in the previous game
         self.mull_reqs, self.started = 0, False  # mulligan hands offered; True once real turn-1 play begins
 
 
 def parse_games(paths, event):
     name = _lookups()
-    matches, cur, pending = [], None, None
+    matches, cur, pending, last_deck, blk = [], None, None, None, None
 
     def finish(m):
         if m is None:
@@ -69,12 +71,30 @@ def parse_games(paths, event):
             games.append({
                 "game": g.num, "onPlay": g.on_play, "opening": g.opening or [],
                 "turns": g.turns, "result": g.result, "opponentCards": list(g.opp_cards),
-                "mulligans": max(g.mull_reqs - 1, 0),
+                "mulligans": max(g.mull_reqs - 1, 0), "sideboard": g.sideboard,
             })
         return {"match": m["n"], "result": m["result"], "games": games}
 
     for path in paths:
         for line in open(path, errors="replace"):
+            if blk is not None:  # a pretty-printed client->GRE message: collect until the closing brace
+                blk.append(line)
+                if line.rstrip() == "}":
+                    try:
+                        payload = json.loads("".join(blk)).get("payload", {})
+                        if payload.get("type", "").endswith("SubmitDeckResp") and cur is not None and cur.get("deck"):
+                            new = payload["submitDeckResp"]["deck"]["deckCards"]
+                            ins, outs = Counter(new) - Counter(cur["deck"]), Counter(cur["deck"]) - Counter(new)
+                            fmt = lambda c: sorted(({"n": name(g) or "a card", "q": q} for g, q in c.items()), key=lambda x: x["n"])
+                            cur["pending_sb"] = {"in": fmt(ins), "out": fmt(outs)} if ins or outs else None
+                            cur["deck"] = new
+                    except Exception:
+                        pass
+                    blk = None
+                continue
+            if "to Match: ClientToGremessage" in line:
+                blk = []
+                continue
             if "==> EventEnterPairing" in line:  # the room event itself has no event name; the pairing request does
                 try:
                     pending = json.loads(json.loads(line[line.index("{"):])["request"]).get("EventName")
@@ -91,13 +111,21 @@ def parse_games(paths, event):
                 cfg, st = ri["gameRoomConfig"], ri["stateType"]
                 if st.endswith("Playing") and (cur is None or cur["id"] != cfg["matchId"]):
                     cur = {"id": cfg["matchId"], "event": pending, "games": [], "result": None,
-                           "me": None, "n": len(matches) + 1, "game": None}
+                           "me": None, "n": len(matches) + 1, "game": None, "deck": last_deck, "pending_sb": None}
                     matches.append(cur)
                 elif st.endswith("MatchCompleted") and cur is not None:
                     for r in ri.get("finalMatchResult", {}).get("resultList", []):
                         if r["scope"] == "MatchScope_Match" and cur["me"]:
                             cur["result"] = "won" if r.get("winningTeamId") == cur["me"] else "lost"
                     cur = None
+                continue
+            if '"connectResp"' in line and '"greToClientEvent"' in line:  # deck registered for the match
+                try:
+                    for m in json.loads(line)["greToClientEvent"]["greToClientMessages"]:
+                        if m["type"].endswith("ConnectResp"):
+                            last_deck = m["connectResp"]["deckMessage"]["deckCards"]
+                except Exception:
+                    pass
                 continue
             if cur is None or '"greToClientEvent"' not in line:
                 continue
@@ -125,6 +153,7 @@ def _state(cur, g, name):
     if gi:
         if cur["game"] is None or gi.get("gameNumber") != cur["game"].num:
             cur["game"] = _Game(gi.get("gameNumber"))
+            cur["game"].sideboard, cur["pending_sb"] = cur["pending_sb"], None
             cur["games"].append(cur["game"])
         if gi.get("stage") == "GameStage_GameOver" and cur["game"].result is None:
             rs = [r for r in gi.get("results", []) if r["scope"] == "MatchScope_Game"]

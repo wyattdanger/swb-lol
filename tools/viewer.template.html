@@ -3,15 +3,15 @@
 <style>
 /* Layout: sticky pack/pick header over a grid of pack cards, picked card marked, pool listed beside. */
 :root{
-  --bg:#f5f5f2; --panel:#ffffff; --fg:#1d2024; --muted:#6b7078; --line:#dcdcd6; --accent:#2f5fb3; --pickbg:#e6eefb;
+  --bg:#f5f5f2; --panel:#ffffff; --fg:#1d2024; --muted:#6b7078; --line:#dcdcd6; --accent:#2f5fb3; --pickbg:#e6eefb; --ring:#2f9bff;
   --W:#e9dfae; --U:#8db8e8; --B:#8a7f94; --R:#e58b74; --G:#86c28f; --M:#e0b95a; --C:#b9bcc2;
   --font-ui:"IBM Plex Sans",system-ui,sans-serif; --font-mono:"IBM Plex Mono",ui-monospace,monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#14161a; --panel:#1d2025; --fg:#e7e8ea; --muted:#979ba3; --line:#32363d; --accent:#7fa9ec; --pickbg:#22304a;
+  --bg:#14161a; --panel:#1d2025; --fg:#e7e8ea; --muted:#979ba3; --line:#32363d; --accent:#7fa9ec; --pickbg:#22304a; --ring:#5cc8ff;
   --W:#b8ad78; --U:#4f7fb0; --B:#6d6478; --R:#b5604d; --G:#4f8b59; --M:#b8933a; --C:#6b6f76; color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#14161a; --panel:#1d2025; --fg:#e7e8ea; --muted:#979ba3; --line:#32363d; --accent:#7fa9ec; --pickbg:#22304a;
+  --bg:#14161a; --panel:#1d2025; --fg:#e7e8ea; --muted:#979ba3; --line:#32363d; --accent:#7fa9ec; --pickbg:#22304a; --ring:#5cc8ff;
   --W:#b8ad78; --U:#4f7fb0; --B:#6d6478; --R:#b5604d; --G:#4f8b59; --M:#b8933a; --C:#6b6f76; color-scheme:dark}
 body{background:var(--bg);color:var(--fg);font-family:var(--font-ui);font-size:15px;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px}
@@ -82,8 +82,8 @@ h3.grp:first-child{margin-top:0}
 .cimg.ld{opacity:1}
 .ph.ld{background:transparent;border-color:transparent}
 .ph.ld .phn{visibility:hidden}
-.ci.picked .ph{outline:3px solid var(--accent);outline-offset:1px}
-.ci .tag{position:absolute;left:6px;top:6px;background:var(--accent);color:var(--bg);font-family:var(--font-mono);font-size:.68rem;font-weight:600;padding:2px 6px;border-radius:4px}
+.ci.picked .ph{outline:3px solid var(--accent);outline-offset:2px;box-shadow:0 0 0 2px var(--ring),0 0 16px 3px color-mix(in srgb,var(--ring) 45%,transparent)} /* bright ring fills the 2px gap inside the dark ring */
+.ci .tag{position:absolute;left:6px;bottom:6px;background:var(--accent);color:var(--bg);font-family:var(--font-mono);font-size:.68rem;font-weight:600;padding:2px 6px;border-radius:4px}
 .dcol.stack{gap:0}
 .dcol.stack h3.grp{margin-bottom:8px}
 .sc{position:relative;margin-top:calc(-139.3% + 30px);transition:transform .12s}
@@ -104,11 +104,18 @@ h3.grp:first-child{margin-top:0}
 .open{display:flex;flex-direction:column;gap:8px;padding:10px;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:6px;font-size:.88rem}
 .openrow{display:flex;flex-wrap:nowrap;gap:6px}
 .openrow .ph{flex:1 1 0;min-width:0;max-width:160px;width:auto}
-.open .ol{color:var(--muted);font-family:var(--font-mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em}
+.sbbox{display:flex;flex-direction:column;gap:6px;padding:10px;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:6px;font-size:.9rem}
+.sbrow{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.sbl{font-family:var(--font-mono);font-size:.78rem;font-weight:600;min-width:3.6em}
+.sbrow.in .sbl{color:var(--accent)}.sbrow.out .sbl{color:var(--muted)}
+.sbq{color:var(--muted);font-family:var(--font-mono);font-size:.78rem}
+.sbbox .ol,.open .ol{color:var(--muted);font-family:var(--font-mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em}
 .turn{border-left:4px solid var(--line);padding:2px 0 2px 12px;margin-bottom:14px}
 .turn.you{border-left-color:var(--accent)}
 .turn .th{margin:0 0 4px;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
 .turn.you .th{color:var(--accent)}
+.gend{margin-top:6px;padding:10px 12px;border-radius:6px;border:1px solid var(--line);background:var(--panel);font-weight:600}
+.gend.win{border-color:var(--accent);color:var(--accent)}
 .ev{padding:1px 0;font-size:.92rem}.ev.quiet{color:var(--muted)}
 .cref{border-bottom:1px dotted var(--muted);cursor:default}
 .pop{position:fixed;width:240px;border-radius:4.5%;box-shadow:0 8px 28px rgba(0,0,0,.45);z-index:20;pointer-events:none}
@@ -205,6 +212,21 @@ function hidePop() { $("pop").hidden = true; }
 function cref(n) { const s = el("span", "cref", n);
   if (D.images && D.images[n]) { s.onmouseenter = e => showPop(n, e); s.onmousemove = movePop; s.onmouseleave = hidePop; } return s; }
 function evEl(text) { const d = el("div", "ev"); text.split(/\{\{(.+?)\}\}/).forEach((part, i) => d.append(i % 2 ? cref(part) : document.createTextNode(part))); return d; }
+// Shareable links: #deck, #games, #game-<match>-<game>, #pick-<pack>-<pick> (pack 1 pick 1 is the plain URL)
+function currentHash() {
+  if (gamesView) { const x = allGames[gameIdx]; return `#game-${x.m.match}-${x.g.game}`; }
+  return deckView ? "#deck" : pack === 1 && pick === 1 ? "" : `#pick-${pack}-${pick}`;
+}
+function applyHash() {
+  const h = location.hash; let m;
+  deckView = gamesView = false;
+  if (h === "#deck" && D.deck) { deckView = true; pack = lastPack; }
+  else if (h === "#games" && allGames.length) { gamesView = true; gameIdx = 0; pack = lastPack; }
+  else if ((m = h.match(/^#game-(\d+)-(\d+)$/)) && allGames.length) {
+    const i = allGames.findIndex(x => x.m.match === +m[1] && x.g.game === +m[2]);
+    if (i >= 0) { gamesView = true; gameIdx = i; pack = lastPack; } }
+  else if ((m = h.match(/^#pick-(\d+)-(\d+)$/)) && byKey.has(m[1] + "-" + m[2])) { pack = +m[1]; pick = +m[2]; }
+}
 function renderGames() {
   const cur = allGames[gameIdx], g = cur.g;
   const wins = allGames.filter(won).length, losses = allGames.length - wins;
@@ -221,6 +243,11 @@ function renderGames() {
   const how = !g.result ? "unfinished" : g.result.reason === "Concede" ? `${g.result.winner === "You" ? "Opp" : "You"} conceded` : "played out";
   const meta = el("div", "gmeta", `On the play: ${g.onPlay || "?"} \u00b7 ${g.result ? (g.result.winner === "You" ? "You won" : "Opp won") : "No result"} (${how})`);
   wrap.append(tabs, meta);
+  if (g.sideboard) { const sb = el("div", "sbbox"); sb.append(el("span", "ol", "Sideboarding"));
+    for (const [label, list, k] of [["In", g.sideboard.in, "in"], ["Out", g.sideboard.out, "out"]]) { if (!list.length) continue;
+      const row = el("div", "sbrow " + k); row.append(el("span", "sbl", (k === "in" ? "+ " : "\u2212 ") + label));
+      list.forEach(x => { row.append(cref(x.n)); if (x.q > 1) row.append(el("span", "sbq", "\u00d7" + x.q)); }); sb.append(row); }
+    wrap.append(sb); }
   if (g.opening.length) { const o = el("div", "open"), row = el("div", "openrow"); o.append(el("span", "ol", g.mulligans ? `Opening hand \u00b7 mulligan to ${g.opening.length}` : "Opening hand"), row);
     g.opening.forEach(n => { const img = D.images && D.images[n];
       if (!img) { row.append(cref(n)); return; }
@@ -231,6 +258,9 @@ function renderGames() {
     s.append(el("h3", "th", `Turn ${Math.ceil(t.turn / 2)} \u00b7 ${t.who}`)); // Arena counts each player's turn; show rounds
     if (t.events.length) t.events.forEach(e => s.append(evEl(e))); else s.append(el("div", "ev quiet", "No actions"));
     wrap.append(s); }
+  const end = el("div", "gend " + (won(cur) ? "win" : "loss"),
+    g.result ? `Game over \u00b7 ${g.result.winner === "You" ? "You win" : "Opp wins"} (${how})` : "Game over \u00b7 no result recorded");
+  wrap.append(end);
   $("grid").replaceChildren(wrap);
   $("grid").classList.add("deckmode");
   $("pool").replaceChildren(...g.opponentCards.map(n => { const li = el("li"); li.append(el("span", null, ""), cref(n)); return li; }));
@@ -277,7 +307,7 @@ function render() {
   if (!gamesView) $("pool").replaceChildren(...pool.map(q => { const li = el("li");
     li.append(el("span", null, `${q.pack}.${q.pick}`), el("span", null, q.picked)); return li; }));
   for (const b of $("packs").children) b.setAttribute("aria-pressed", b.dataset.p === "deck" ? deckView : b.dataset.p === "games" ? gamesView : !deckView && !gamesView && +b.dataset.p === pack);
-  try { history.replaceState(null, "", deckView ? "#deck" : gamesView ? "#games" : location.pathname + location.search); } catch (e) {}
+  try { history.replaceState(null, "", currentHash() || location.pathname + location.search); } catch (e) {}
   const n = D.picks.filter(q => q.pack === pack).length;
   const btns = Array.from({ length: n }, (_, i) => { const b = el("button", null, String(i + 1));
     b.setAttribute("aria-label", `Pick ${i + 1}`); b.setAttribute("aria-pressed", !deckView && !gamesView && i + 1 === pick);
@@ -306,8 +336,8 @@ if (D.deck) { const b = el("button", null, "Deck"); b.dataset.p = "deck";
 if (allGames.length) { const b = el("button", null, "Games"); b.dataset.p = "games";
   b.onclick = () => { gamesView = true; deckView = false; pack = lastPack; render(); }; packBtns.push(b); }
 $("packs").replaceChildren(...packBtns);
-if (D.deck && location.hash === "#deck") { deckView = true; pack = lastPack; }
-if (allGames.length && location.hash === "#games") { gamesView = true; pack = lastPack; }
+applyHash();
+if (typeof window !== "undefined") window.addEventListener("hashchange", () => { applyHash(); render(); });
 $("copy").onclick = async () => { const b = $("copy");
   try { await navigator.clipboard.writeText($("decktext").textContent); b.textContent = "Copied"; }
   catch (e) { const r = document.createRange(); r.selectNodeContents($("decktext")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = "Selected"; }
