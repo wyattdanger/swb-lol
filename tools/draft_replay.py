@@ -13,7 +13,6 @@ Defaults to Player.log and Player-prev.log in Arena's log directory.
 """
 import argparse
 import glob
-import hashlib
 import json
 import os
 import re
@@ -117,7 +116,7 @@ def main():
     ap.add_argument("--draft-id", help="which draft to show (default: the most recent)")
     ap.add_argument("--json", action="store_true", help="emit JSON instead of text")
     ap.add_argument("--publish", metavar="SITE_DIR",
-                    help="write the viewer page to SITE_DIR/<sha>/index.html, sha = first 12 hex of sha256(draftId)")
+                    help="write the viewer page to SITE_DIR/drafts/<n>/index.html; n is stable per draft (tools/drafts.json)")
     args = ap.parse_args()
 
     logs = args.logs or [os.path.join(LOG_DIR, n) for n in ("Player-prev.log", "Player.log")]
@@ -147,15 +146,23 @@ def main():
                 "cards": [card(g) for g in dr["packs"][key]],
             })
         if args.publish:
-            sha = hashlib.sha256(draft_id.encode()).hexdigest()[:12]
-            tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "viewer.template.html")).read()
+            here = os.path.dirname(os.path.abspath(__file__))
+            manifest_path = os.path.join(here, "drafts.json")
+            manifest = json.load(open(manifest_path)) if os.path.exists(manifest_path) else {}
+            if draft_id not in manifest:
+                manifest[draft_id] = max(manifest.values(), default=0) + 1
+                with open(manifest_path, "w") as f:
+                    json.dump(manifest, f, indent=2)
+                    f.write("\n")
+            num = manifest[draft_id]
+            tpl = open(os.path.join(here, "viewer.template.html")).read()
             page = tpl.replace("__DATA__", json.dumps(out, separators=(",", ":")).replace("</", "<\\/"))
             page = page.replace("<title>", '<meta name="robots" content="noindex">\n<title>', 1)
-            dest = os.path.join(args.publish, sha)
+            dest = os.path.join(args.publish, "drafts", str(num))
             os.makedirs(dest, exist_ok=True)
             with open(os.path.join(dest, "index.html"), "w") as f:
                 f.write(page)
-            print(f"wrote {dest}/index.html  ->  /{sha}/")
+            print(f"wrote {dest}/index.html  ->  /drafts/{num}")
             return
         json.dump(out, sys.stdout, indent=2)
         print()
