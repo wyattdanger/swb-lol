@@ -17,6 +17,8 @@ import json
 import os
 import re
 import sqlite3
+import urllib.parse
+import urllib.request
 import sys
 from collections import OrderedDict
 from urllib.parse import quote
@@ -79,6 +81,51 @@ def load_meta(grp_ids):
                 "rarity": rarity,
             }
     return meta
+
+
+SCRYFALL_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scryfall_cache.json")
+
+
+def scryfall_images(names):
+    """card name -> Scryfall 'normal' image URL. Cached on disk; only unseen names hit the API."""
+    cache = json.load(open(SCRYFALL_CACHE)) if os.path.exists(SCRYFALL_CACHE) else {}
+    todo = sorted(n for n in set(names) if n not in cache)
+    for i in range(0, len(todo), 75):
+        chunk = todo[i : i + 75]
+        req = urllib.request.Request(
+            "https://api.scryfall.com/cards/collection",
+            data=json.dumps({"identifiers": [{"name": n} for n in chunk]}).encode(),
+            headers={"Content-Type": "application/json", "Accept": "application/json",
+                     "User-Agent": "swb-lol-draft-replay/1.0"},
+        )
+        try:
+            resp = json.load(urllib.request.urlopen(req, timeout=20))
+            data = resp["data"]
+        except Exception as e:  # offline or rate-limited: render without images
+            print(f"# scryfall lookup failed ({e}); continuing without images for {len(chunk)} cards", file=sys.stderr)
+            continue
+        by_name = {}
+        for c in data:
+            uris = c.get("image_uris") or c["card_faces"][0]["image_uris"]
+            by_name[c["name"]] = by_name[c["name"].split(" // ")[0]] = uris["normal"]
+        for n in chunk:
+            if n in by_name:
+                cache[n] = by_name[n]
+        # Arena names can differ from Scryfall's in accents (bulk lookup returns them under the accented name),
+        # so anything left unmapped goes through the fuzzy endpoint, which tolerates that.
+        for n in chunk:
+            if n in cache:
+                continue
+            try:
+                c = json.load(urllib.request.urlopen(urllib.request.Request(
+                    "https://api.scryfall.com/cards/named?fuzzy=" + urllib.parse.quote(n),
+                    headers={"Accept": "application/json", "User-Agent": "swb-lol-draft-replay/1.0"}), timeout=20))
+                cache[n] = (c.get("image_uris") or c["card_faces"][0]["image_uris"])["normal"]
+            except Exception as e:
+                print(f"# no image for {n!r}: {e}", file=sys.stderr)
+    with open(SCRYFALL_CACHE, "w") as f:
+        json.dump(cache, f, indent=1, sort_keys=True)
+    return cache
 
 
 def parse(paths):
@@ -149,7 +196,8 @@ def main():
 
     if args.json or args.publish:
         meta = load_meta(all_ids)
-        card = lambda g: {"name": name(g), **meta.get(g, {})}
+        imgs = scryfall_images({name(g) for g in all_ids if g in names})
+        card = lambda g: {"name": name(g), **meta.get(g, {}), **({"img": imgs[name(g)]} if name(g) in imgs else {})}
         out = {"draftId": draft_id, "event": dr["event"], "picks": []}
         if deck:
             zone = lambda z: [{**card(c["cardId"]), "qty": c["quantity"]} for c in deck.get(z, [])]
