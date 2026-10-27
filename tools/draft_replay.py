@@ -85,6 +85,35 @@ def load_meta(grp_ids):
 
 from games import find_card_db, parse_games  # noqa: E402  (tools/ is on sys.path when run as a script)
 
+SCHEMA = 1  # bump when data.json changes shape in a way the viewer must handle
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def draft_number(site, draft_id):
+    """A draft's number: the folder already holding its data.json, else the next free number."""
+    known = {}
+    for d in glob.glob(os.path.join(site, "drafts", "*", "data.json")):
+        try:
+            known[json.load(open(d))["draftId"]] = int(os.path.basename(os.path.dirname(d)))
+        except (ValueError, KeyError, json.JSONDecodeError):
+            continue
+    return known.get(draft_id) or max(known.values(), default=0) + 1
+
+
+def write_shell(dest):
+    """Every draft page is the same tiny shell; the viewer and the data are separate files."""
+    with open(os.path.join(HERE, "shell.html")) as src, open(os.path.join(dest, "index.html"), "w") as f:
+        f.write(src.read())
+
+
+def rebuild_shells(site):
+    nums = sorted(int(os.path.basename(os.path.dirname(d)))
+                  for d in glob.glob(os.path.join(site, "drafts", "*", "data.json")))
+    for n in nums:
+        write_shell(os.path.join(site, "drafts", str(n)))
+    return nums
+
+
 SCRYFALL_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scryfall_cache.json")
 
 
@@ -176,8 +205,16 @@ def main():
     ap.add_argument("--json", action="store_true", help="emit JSON instead of text")
     ap.add_argument("--no-images", action="store_true", help="skip Scryfall image lookups (offline / tests)")
     ap.add_argument("--publish", metavar="SITE_DIR",
-                    help="write the viewer page to SITE_DIR/drafts/<n>/index.html; n is stable per draft (tools/drafts.json)")
+                    help="write SITE_DIR/drafts/<n>/data.json (the draft's data) and its page shell; "
+                         "n is stable per draft, found by scanning existing data files")
+    ap.add_argument("--rebuild", metavar="SITE_DIR",
+                    help="rewrite every draft page shell under SITE_DIR from tools/shell.html (no logs needed)")
     args = ap.parse_args()
+
+    if args.rebuild:
+        for n in rebuild_shells(args.rebuild):
+            print(f"refreshed {args.rebuild}/drafts/{n}/index.html")
+        return
 
     logs = args.logs or [os.path.join(LOG_DIR, n) for n in ("Player-prev.log", "Player.log")]
     drafts = parse([p for p in logs if os.path.exists(p)])
@@ -219,23 +256,13 @@ def main():
                 "cards": [card(g) for g in dr["packs"][key]],
             })
         if args.publish:
-            here = os.path.dirname(os.path.abspath(__file__))
-            manifest_path = os.environ.get("DRAFTS_MANIFEST") or os.path.join(here, "drafts.json")
-            manifest = json.load(open(manifest_path)) if os.path.exists(manifest_path) else {}
-            if draft_id not in manifest:
-                manifest[draft_id] = max(manifest.values(), default=0) + 1
-                with open(manifest_path, "w") as f:
-                    json.dump(manifest, f, indent=2)
-                    f.write("\n")
-            num = manifest[draft_id]
-            tpl = open(os.path.join(here, "viewer.template.html")).read()
-            page = tpl.replace("__DATA__", json.dumps(out, separators=(",", ":")).replace("</", "<\\/"))
-            page = page.replace("<title>", '<meta name="robots" content="noindex">\n<title>', 1)
+            num = draft_number(args.publish, draft_id)
             dest = os.path.join(args.publish, "drafts", str(num))
             os.makedirs(dest, exist_ok=True)
-            with open(os.path.join(dest, "index.html"), "w") as f:
-                f.write(page)
-            print(f"wrote {dest}/index.html  ->  /drafts/{num}")
+            with open(os.path.join(dest, "data.json"), "w") as f:
+                json.dump({"schema": SCHEMA, "number": num, **out}, f, separators=(",", ":"), ensure_ascii=False)
+            write_shell(dest)
+            print(f"wrote {dest}/data.json  ->  /drafts/{num}")
             return
         json.dump(out, sys.stdout, indent=2)
         print()

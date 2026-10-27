@@ -11,14 +11,16 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..');
-const TEMPLATE = fs.readFileSync(path.join(ROOT, 'tools', 'viewer.template.html'), 'utf8');
+const VIEWER = fs.readFileSync(path.join(ROOT, 'assets', 'viewer.js'), 'utf8');
+const BOOT = fs.readFileSync(path.join(ROOT, 'assets', 'boot.js'), 'utf8');
+const SHELL = fs.readFileSync(path.join(ROOT, 'tools', 'shell.html'), 'utf8');
 const imgUrl = name => `https://img.test/${encodeURIComponent(name)}.jpg`;
 
 function fixtureData() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'viewer-spec-'));
   const build = spawnSync('python3', ['-c', 'import sys; sys.path.insert(0, "tests"); import fixture; fixture.build_all(sys.argv[1])', tmp], { cwd: ROOT });
   assert.equal(build.status, 0, String(build.stderr));
-  const env = { ...process.env, ARENA_CARD_DB: path.join(tmp, 'cards.sqlite'), DRAFTS_MANIFEST: path.join(tmp, 'm.json') };
+  const env = { ...process.env, ARENA_CARD_DB: path.join(tmp, 'cards.sqlite') };
   const run = spawnSync('python3', ['tools/draft_replay.py', '--json', '--no-images', '--draft-id', 'D1', path.join(tmp, 'Player.log')], { cwd: ROOT, env });
   assert.equal(run.status, 0, String(run.stderr));
   const D = JSON.parse(String(run.stdout));
@@ -51,13 +53,12 @@ function load(D, { hash = '', saveData = false } = {}) {
   };
   class FakeImage { set src(v) { preloaded.push(v); if (this.onload) this.onload(); } }
   const loc = { hash, pathname: '/drafts/1/', search: '' };
-  const html = TEMPLATE.replace('__DATA__', JSON.stringify(D));
-  const script = html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>'));
-  const api = new Function('document', 'scrollTo', 'location', 'history', 'innerWidth', 'innerHeight', 'window', 'Image',
-    'requestIdleCallback', 'navigator',
-    script + ';return { step, st: () => ({ deckView, gamesView, gameIdx, pack, pick }) }')(
-    doc, () => {}, loc, { replaceState(a, b, u) { urls.push(u); } }, 1200, 800,
+  const mod = { exports: {} };
+  new Function('module', 'document', 'scrollTo', 'location', 'history', 'innerWidth', 'innerHeight', 'window', 'Image',
+    'requestIdleCallback', 'navigator', VIEWER)(
+    mod, doc, () => {}, loc, { replaceState(a, b, u) { urls.push(u); } }, 1200, 800,
     { addEventListener(n, f) { listeners[n] = f; } }, FakeImage, f => f(), { connection: { saveData } });
+  const api = mod.exports.startViewer(D);
   return { els, api, urls, loc, listeners, preloaded };
 }
 
@@ -75,7 +76,7 @@ const clickGame = (v, m, g) => groups(v)[m].children[1].children[g].onclick();
 test('top bar lists the packs, then Deck, then Games, and has no sort control', () => {
   const v = load(DATA);
   assert.deepEqual(v.els.packs.children.map(b => b.textContent), ['Pack 1', 'Pack 2', 'Deck', 'Games']);
-  assert.ok(!TEMPLATE.includes('id="sort"'));
+  assert.ok(!VIEWER.includes('id="sort"'));
 });
 
 test('next/prev walk picks, then the deck, then games, and stop at both ends', () => {
@@ -238,4 +239,46 @@ test('preloading is skipped on the last pack, outside pick views, and with data 
   assert.equal(load(DATA, { hash: '#games' }).preloaded.length, 0);
   assert.equal(load(DATA, { hash: '#pick-2-1' }).preloaded.length, 0);
   assert.equal(load(DATA, { saveData: true }).preloaded.length, 0);
+});
+
+// ---- shared assets: skeleton, boot script, and the shell ---------------------------------------
+test('every element the viewer looks up by id exists in its skeleton (the stub DOM would hide a miss)', () => {
+  const skeleton = VIEWER.slice(VIEWER.indexOf('const SKELETON = `'), VIEWER.indexOf('`;', VIEWER.indexOf('const SKELETON = `')));
+  const have = new Set([...skeleton.matchAll(/id="(\w+)"/g)].map(m => m[1]));
+  const used = new Set([...VIEWER.matchAll(/\$\("(\w+)"\)/g)].map(m => m[1]));
+  used.delete('app');
+  assert.deepEqual([...used].filter(id => !have.has(id)), []);
+});
+
+test('the draft page shell loads the viewer before the boot script, in standards mode', () => {
+  assert.ok(SHELL.startsWith('<!doctype html>'));
+  assert.ok(SHELL.indexOf('/assets/viewer.js') < SHELL.indexOf('/assets/boot.js'));
+  assert.ok(SHELL.includes('name="viewport"') && SHELL.includes('name="robots" content="noindex"'));
+  assert.ok(SHELL.includes('id="app"'));
+});
+
+function boot({ pathname, fetchImpl }) {
+  const mod = { exports: {} }, app = { textContent: '' }, started = [], fetched = [];
+  new Function('module', 'document', 'fetch', 'location', 'startViewer', BOOT)(
+    mod, { getElementById: () => app }, async u => { fetched.push(u); return fetchImpl(u); }, { pathname }, d => started.push(d));
+  return { run: () => mod.exports.boot(), app, started, fetched, exports: mod.exports };
+}
+
+test('boot finds the draft data next to the page, with or without a trailing slash', async () => {
+  const b = boot({ pathname: '/drafts/1', fetchImpl: async () => ({ ok: true, json: async () => DATA }) });
+  assert.equal(b.exports.draftDataUrl('/drafts/1'), '/drafts/1/data.json');
+  assert.equal(b.exports.draftDataUrl('/drafts/1/'), '/drafts/1/data.json');
+  await b.run();
+  assert.deepEqual(b.fetched, ['/drafts/1/data.json']);
+  assert.equal(b.started.length, 1);
+  assert.equal(b.started[0], DATA);
+});
+
+test('boot shows a readable message when the data is missing or the request fails', async () => {
+  for (const fetchImpl of [async () => ({ ok: false, status: 404 }), async () => { throw new Error('offline'); }]) {
+    const b = boot({ pathname: '/drafts/9/', fetchImpl });
+    await b.run();
+    assert.match(b.app.textContent, /Could not load this draft/);
+    assert.equal(b.started.length, 0);
+  }
 });

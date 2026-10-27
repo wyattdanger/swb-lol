@@ -26,8 +26,7 @@ class FixtureCase(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.log, cls.db = fixture.build_all(cls.tmp.name)
-        cls.env = dict(os.environ, ARENA_CARD_DB=cls.db,
-                       DRAFTS_MANIFEST=os.path.join(cls.tmp.name, "drafts.json"))
+        cls.env = dict(os.environ, ARENA_CARD_DB=cls.db)
         cls._saved = os.environ.get("ARENA_CARD_DB")
         os.environ["ARENA_CARD_DB"] = cls.db  # for in-process calls into games.py
 
@@ -142,34 +141,78 @@ class GameNarration(FixtureCase):
 
 
 class Publish(FixtureCase):
-    def publish(self, site, manifest, draft):
-        env = dict(self.env, DRAFTS_MANIFEST=manifest)
-        return self.cli("--publish", site, "--no-images", "--draft-id", draft, env=env)
+    def publish(self, site, draft):
+        return self.cli("--publish", site, "--no-images", "--draft-id", draft)
 
-    def page_data(self, path):
-        html = open(path).read()
-        return html, json.loads(re.search(r"const D = (\{.*?\});\nconst \$", html, re.S).group(1))
+    def files(self, site):
+        return sorted(os.path.relpath(os.path.join(d, f), site) for d, _, fs in os.walk(site) for f in fs)
 
-    def test_writes_a_self_contained_numbered_page(self):
-        with tempfile.TemporaryDirectory() as d:
-            self.publish(d, os.path.join(d, "m.json"), "D1")
-            html, data = self.page_data(os.path.join(d, "drafts", "1", "index.html"))
-            self.assertNotIn("__DATA__", html)
-            self.assertIn('<meta name="robots" content="noindex">', html)
-            self.assertEqual(html.count("</script>"), 1, "data must not be able to close the script tag")
+    def read(self, *parts):
+        return open(os.path.join(*parts)).read()
+
+    def test_writes_a_data_file_and_a_shell_and_nothing_else(self):
+        with tempfile.TemporaryDirectory() as site:
+            self.publish(site, "D1")
+            self.assertEqual(self.files(site), ["drafts/1/data.json", "drafts/1/index.html"])
+
+    def test_data_file_holds_the_whole_draft(self):
+        with tempfile.TemporaryDirectory() as site:
+            self.publish(site, "D1")
+            data = json.loads(self.read(site, "drafts", "1", "data.json"))
+            self.assertEqual((data["schema"], data["number"], data["draftId"]), (1, 1, "D1"))
             self.assertEqual(data["picks"], self.data()["picks"])
             self.assertEqual(data["games"], self.data()["games"])
-            self.assertNotIn(fixture.ME_NAME, html)
-            self.assertNotIn(fixture.OPP_NAME, html)
+            self.assertEqual(data["deck"], self.data()["deck"])
+            self.assertNotIn(fixture.ME_NAME, json.dumps(data))
+            self.assertNotIn(fixture.OPP_NAME, json.dumps(data))
+
+    def test_the_page_is_a_small_shell_with_no_draft_data_in_it(self):
+        with tempfile.TemporaryDirectory() as site:
+            self.publish(site, "D1")
+            html = self.read(site, "drafts", "1", "index.html")
+            self.assertTrue(html.startswith("<!doctype html>"), "standards mode, not quirks mode")
+            self.assertIn('<meta name="robots" content="noindex">', html)
+            self.assertIn('name="viewport"', html)
+            self.assertLess(html.index("/assets/viewer.js"), html.index("/assets/boot.js"))
+            self.assertNotIn("Alpha Land", html)
+            self.assertLess(len(html), 2000)
+
+    def test_every_draft_page_is_byte_identical_so_template_changes_apply_to_all(self):
+        with tempfile.TemporaryDirectory() as site:
+            self.publish(site, "D1")
+            self.publish(site, "D2")
+            self.assertEqual(self.read(site, "drafts", "1", "index.html"), self.read(site, "drafts", "2", "index.html"))
 
     def test_numbers_are_stable_per_draft_and_increment_for_new_ones(self):
-        with tempfile.TemporaryDirectory() as d:
-            m = os.path.join(d, "m.json")
-            self.publish(d, m, "D1")
-            self.publish(d, m, "D2")
-            self.publish(d, m, "D1")  # republishing keeps its number
-            self.assertEqual(sorted(os.listdir(os.path.join(d, "drafts"))), ["1", "2"])
-            self.assertEqual(json.load(open(m)), {"D1": 1, "D2": 2})
+        with tempfile.TemporaryDirectory() as site:
+            self.publish(site, "D1")
+            self.publish(site, "D2")
+            before = self.read(site, "drafts", "1", "data.json")
+            self.publish(site, "D1")  # republishing keeps its number
+            self.assertEqual(sorted(os.listdir(os.path.join(site, "drafts"))), ["1", "2"])
+            self.assertEqual(self.read(site, "drafts", "1", "data.json"), before)
+            self.assertEqual(json.loads(self.read(site, "drafts", "2", "data.json"))["draftId"], "D2")
+
+    def test_numbering_comes_from_existing_data_files_not_a_separate_manifest(self):
+        with tempfile.TemporaryDirectory() as site:
+            os.makedirs(os.path.join(site, "drafts", "7"))
+            with open(os.path.join(site, "drafts", "7", "data.json"), "w") as f:
+                json.dump({"draftId": "someone-else"}, f)
+            self.publish(site, "D1")
+            self.assertTrue(os.path.exists(os.path.join(site, "drafts", "8", "data.json")))
+
+    def test_rebuild_refreshes_every_shell_without_logs_and_leaves_data_alone(self):
+        with tempfile.TemporaryDirectory() as site:
+            self.publish(site, "D1")
+            self.publish(site, "D2")
+            data = {n: self.read(site, "drafts", n, "data.json") for n in ("1", "2")}
+            good = self.read(site, "drafts", "1", "index.html")
+            for n in ("1", "2"):
+                open(os.path.join(site, "drafts", n, "index.html"), "w").write("stale")
+            subprocess.run([sys.executable, SCRIPT, "--rebuild", site], env=self.env, check=True, capture_output=True)
+            for n in ("1", "2"):
+                self.assertEqual(self.read(site, "drafts", n, "index.html"), good)
+                self.assertEqual(self.read(site, "drafts", n, "data.json"), data[n])
 
 
 @unittest.skipUnless(os.path.exists(os.path.expanduser(
