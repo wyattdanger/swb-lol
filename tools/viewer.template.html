@@ -47,6 +47,33 @@ aside{background:var(--panel);border:1px solid var(--line);border-radius:8px;pad
 aside h3{margin:0 0 8px;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
 aside ol{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px;font-size:.88rem}
 aside li{display:flex;gap:8px}aside li span:first-child{color:var(--muted);font-family:var(--font-mono);font-size:.75rem;min-width:2.4em}
+.grid.deckmode{display:block}
+.deck{display:flex;flex-direction:column;gap:20px}
+.curve{display:flex;gap:10px;align-items:flex-end;height:96px}
+.cv{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px;min-width:34px}
+.cv .bar{width:26px;background:var(--accent);border-radius:3px 3px 0 0;opacity:.85}
+.cv .num{font-family:var(--font-mono);font-size:.75rem}.cv .lbl{font-family:var(--font-mono);font-size:.72rem;color:var(--muted)}
+.dcols{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px 10px;align-items:start}
+.dcol{display:flex;flex-direction:column;gap:4px;min-width:0}
+.dcol h3.grp{margin:0 0 4px}
+.chip{display:flex;justify-content:space-between;gap:8px;align-items:baseline;min-width:0;background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--C);border-radius:5px;padding:5px 8px;font-size:.88rem}
+.chip.W{border-left-color:var(--W)}.chip.U{border-left-color:var(--U)}.chip.B{border-left-color:var(--B)}.chip.R{border-left-color:var(--R)}.chip.G{border-left-color:var(--G)}.chip.M{border-left-color:var(--M)}
+.chip .cn{overflow-wrap:anywhere}.chip .cc{color:var(--muted);font-family:var(--font-mono);font-size:.72rem;white-space:nowrap}
+.sidegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 10px}
+h3.grp{margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.drow{display:grid;grid-template-columns:10px 1.6em minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:3px 0;font-size:.92rem}
+.drow .dot{width:10px;height:10px;border-radius:50%;background:var(--C);align-self:center}
+.dot.W{background:var(--W)}.dot.U{background:var(--U)}.dot.B{background:var(--B)}.dot.R{background:var(--R)}.dot.G{background:var(--G)}.dot.M{background:var(--M)}
+.drow .q{color:var(--muted);font-family:var(--font-mono);font-size:.8rem}
+.drow .dn{overflow-wrap:anywhere}
+.drow .dc{color:var(--muted);font-family:var(--font-mono);font-size:.75rem}
+h3.grp{margin:16px 0 8px;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+h3.grp:first-child{margin-top:0}
+.picks .deckbtn{padding-inline:12px;margin-left:8px}
+.sidehead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+.sidehead h3{margin:0}
+#copy{border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:5px;padding:3px 10px;font:inherit;font-size:.8rem;cursor:pointer}
+#decktext{margin:0;font-family:var(--font-mono);font-size:.78rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;user-select:all}
 .hint{color:var(--muted);font-size:.8rem}
 </style>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -64,7 +91,7 @@ aside li{display:flex;gap:8px}aside li span:first-child{color:var(--muted);font-
   <div class="main">
     <section><div class="head"><h2 id="title"></h2><div class="nav"><button id="prev">&larr; Prev</button><button id="next">Next &rarr;</button></div></div>
       <div class="grid" id="grid"></div><p class="hint">Arrow keys step through picks.</p></section>
-    <aside><h3>Picked so far</h3><ol id="pool"></ol></aside>
+    <aside><div class="sidehead"><h3 id="sideTitle">Picked so far</h3><button id="copy" hidden>Copy</button></div><ol id="pool"></ol><pre id="decktext" hidden></pre></aside>
   </div>
 </div>
 
@@ -73,48 +100,114 @@ const D = __DATA__;
 const $ = id => document.getElementById(id);
 const byKey = new Map(D.picks.map(p => [p.pack + "-" + p.pick, p]));
 const packs = [...new Set(D.picks.map(p => p.pack))];
-let pack = 1, pick = 1, sort = "color";
-const mv = c => { let n = 0; for (const m of (c.cost.match(/\{(\w)\}/g) || [])) { const v = m[1]; n += /\d/.test(v) ? +v : 1; } return n; };
+let pack = 1, pick = 1, sort = "color", deckView = false;
+const lastPack = packs[packs.length - 1];
+const mv = c => { let n = 0; for (const m of (c.cost.match(/\{(\w)\}/g) || [])) { const v = m[1]; n += /\d/.test(v) ? +v : v === "X" ? 0 : 1; } return n; };
 const colorKey = c => c.colors.length > 1 ? "M" : (c.colors || (c.types.includes("Land") ? "L" : "C"));
 const ORDER = "WUBRGMCL";
 const cls = c => colorKey(c) === "L" ? "C" : colorKey(c);
+const el = (tag, klass, text) => { const e = document.createElement(tag); if (klass) e.className = klass; if (text != null) e.textContent = text; return e; };
 function sorted(cards) {
   const a = cards.map((c, i) => ({ c, i }));
   if (sort === "color") a.sort((x, y) => ORDER.indexOf(colorKey(x.c)) - ORDER.indexOf(colorKey(y.c)) || mv(x.c) - mv(y.c) || x.i - y.i);
   else if (sort === "cost") a.sort((x, y) => mv(x.c) - mv(y.c) || x.i - y.i);
   return a.map(x => x.c);
 }
+function cardEl(c, extra) {
+  const d = el("div", "card " + cls(c) + (extra || ""));
+  const n = el("div", "n", (c.qty > 1 ? c.qty + "\u00d7 " : "") + c.name);
+  const t = el("div", "t"); t.append(el("span", null, c.types.join(" ")), el("span", null, c.cost));
+  d.append(n, t); return d;
+}
+const GROUPS = ["Creatures", "Planeswalkers", "Instants", "Sorceries", "Artifacts & enchantments", "Lands"];
+const groupOf = c => c.types.includes("Land") ? "Lands" : c.types.includes("Creature") ? "Creatures" : c.types.includes("Planeswalker") ? "Planeswalkers"
+  : c.types.includes("Instant") ? "Instants" : c.types.includes("Sorcery") ? "Sorceries" : "Artifacts & enchantments";
+const total = list => list.reduce((n, c) => n + c.qty, 0);
+const COLS = [["0\u20131", 1], ["2", 2], ["3", 3], ["4", 4], ["5", 5], ["6", 6], ["7+", 99]];
+function deckChip(c) {
+  const d = el("div", "chip " + cls(c));
+  d.append(el("span", "cn", c.name));
+  if (c.qty > 1) d.append(el("span", "cc", "\u00d7" + c.qty));
+  return d;
+}
+function deckText() {
+  const line = c => `${c.qty} ${c.name}`;
+  const nonland = D.deck.main.filter(c => !c.types.includes("Land")).sort((x, y) => mv(x) - mv(y) || x.name.localeCompare(y.name));
+  const lands = D.deck.main.filter(c => c.types.includes("Land")).sort((x, y) => x.name.localeCompare(y.name));
+  return ["Deck", ...nonland.map(line), ...lands.map(line), "", "Sideboard", ...D.deck.side.map(line)].join("\n");
+}
+function renderDeck() {
+  $("title").textContent = `Final deck \u00b7 ${total(D.deck.main)} main, ${total(D.deck.side)} sideboard`;
+  const byColor = (x, y) => ORDER.indexOf(colorKey(x)) - ORDER.indexOf(colorKey(y)) || x.name.localeCompare(y.name);
+  const spells = D.deck.main.filter(c => !c.types.includes("Land")), lands = D.deck.main.filter(c => c.types.includes("Land"));
+  const cols = COLS.map(([label, max], i) => {
+    const prev = i ? COLS[i - 1][1] : -1;
+    return { label, cards: spells.filter(c => mv(c) > prev && mv(c) <= max).sort(byColor) };
+  }).filter(c => c.cards.length);
+  const peak = Math.max(...cols.map(c => total(c.cards)));
+  const curve = el("div", "curve");
+  for (const c of cols) { const n = total(c.cards), col = el("div", "cv");
+    const bar = el("div", "bar"); bar.style.height = Math.round(n / peak * 56) + "px";
+    col.append(el("span", "num", String(n)), bar, el("span", "lbl", c.label)); curve.append(col); }
+  const row = el("div", "dcols");
+  const addCol = (label, cards, n) => { const col = el("div", "dcol"); col.append(el("h3", "grp", `${label} (${n})`));
+    cards.forEach(c => col.append(deckChip(c))); row.append(col); };
+  for (const c of cols) addCol(c.label === "7+" ? "7+" : "MV " + c.label, c.cards, total(c.cards));
+  addCol("Lands", lands.sort(byColor), total(lands));
+  const side = el("div", "dcol side"); side.append(el("h3", "grp", `Sideboard (${total(D.deck.side)})`));
+  const sg = el("div", "sidegrid"); D.deck.side.slice().sort((x, y) => mv(x) - mv(y) || byColor(x, y)).forEach(c => sg.append(deckChip(c))); side.append(sg);
+  const wrap = el("div", "deck"); wrap.append(curve, row, side);
+  $("grid").replaceChildren(wrap);
+  $("grid").classList.add("deckmode");
+}
 function render() {
-  const p = byKey.get(pack + "-" + pick);
   const show = $("showPicks").checked;
-  $("title").textContent = `Pack ${pack}, pick ${pick} · ${p.cards.length} card${p.cards.length > 1 ? "s" : ""}`;
-  $("grid").replaceChildren(...sorted(p.cards).map(c => {
-    const d = document.createElement("div");
-    d.className = "card " + cls(c) + (c.name === p.picked ? " picked" : "") + (show ? " show" : "");
-    const n = document.createElement("div"); n.className = "n"; n.textContent = c.name;
-    const t = document.createElement("div"); t.className = "t";
-    const ty = document.createElement("span"); ty.textContent = c.types.join(" ");
-    const co = document.createElement("span"); co.textContent = c.cost;
-    t.append(ty, co); d.append(n, t); return d;
-  }));
-  const pool = D.picks.filter(q => q.pack < pack || (q.pack === pack && q.pick < pick) || (show && q.pack === pack && q.pick === pick));
-  $("pool").replaceChildren(...pool.map(q => { const li = document.createElement("li");
-    const a = document.createElement("span"); a.textContent = `${q.pack}.${q.pick}`;
-    const b = document.createElement("span"); b.textContent = q.picked; li.append(a, b); return li; }));
-  for (const b of $("packs").children) b.setAttribute("aria-pressed", +b.dataset.p === pack);
+  $("sort").hidden = false;
+  $("grid").classList.remove("deckmode");
+  if (deckView) renderDeck();
+  else {
+    const p = byKey.get(pack + "-" + pick);
+    $("title").textContent = `Pack ${pack}, pick ${pick} \u00b7 ${p.cards.length} card${p.cards.length > 1 ? "s" : ""}`;
+    $("grid").replaceChildren(...sorted(p.cards).map(c => cardEl(c, (c.name === p.picked ? " picked" : "") + (show ? " show" : ""))));
+  }
+  $("sideTitle").textContent = deckView ? "Decklist" : "Picked so far";
+  $("pool").hidden = deckView; $("decktext").hidden = !deckView; $("copy").hidden = !deckView;
+  if (deckView) $("decktext").textContent = deckText();
+  const pool = deckView ? [] : D.picks.filter(q => q.pack < pack || (q.pack === pack && q.pick < pick) || (show && q.pack === pack && q.pick === pick));
+  $("pool").replaceChildren(...pool.map(q => { const li = el("li");
+    li.append(el("span", null, `${q.pack}.${q.pick}`), el("span", null, q.picked)); return li; }));
+  for (const b of $("packs").children) b.setAttribute("aria-pressed", b.dataset.p === "deck" ? deckView : !deckView && +b.dataset.p === pack);
+  try { history.replaceState(null, "", deckView ? "#deck" : location.pathname + location.search); } catch (e) {}
   for (const b of $("sort").children) b.setAttribute("aria-pressed", b.dataset.s === sort);
   const n = D.picks.filter(q => q.pack === pack).length;
-  $("picks").replaceChildren(...Array.from({ length: n }, (_, i) => { const b = document.createElement("button");
-    b.textContent = i + 1; b.setAttribute("aria-label", `Pick ${i + 1}`); b.setAttribute("aria-pressed", i + 1 === pick);
-    b.onclick = () => { pick = i + 1; render(); }; return b; }));
-  const idx = D.picks.indexOf(p);
-  $("prev").disabled = idx === 0; $("next").disabled = idx === D.picks.length - 1;
+  const btns = Array.from({ length: n }, (_, i) => { const b = el("button", null, String(i + 1));
+    b.setAttribute("aria-label", `Pick ${i + 1}`); b.setAttribute("aria-pressed", !deckView && i + 1 === pick);
+    b.onclick = () => { deckView = false; pick = i + 1; render(); }; return b; });
+  if (D.deck && pack === lastPack) { const b = el("button", "deckbtn", "Deck"); b.setAttribute("aria-pressed", deckView);
+    b.onclick = () => { deckView = true; render(); }; btns.push(b); }
+  $("picks").replaceChildren(...btns);
+  const idx = deckView ? D.picks.length : D.picks.indexOf(byKey.get(pack + "-" + pick));
+  const lastIdx = D.picks.length - 1 + (D.deck ? 1 : 0);
+  $("prev").disabled = idx === 0; $("next").disabled = idx === lastIdx;
 }
-function step(d) { const i = D.picks.indexOf(byKey.get(pack + "-" + pick)) + d; const q = D.picks[i]; if (q) { pack = q.pack; pick = q.pick; render(); } }
-$("sub").textContent = `${D.event || "Draft"} · ${D.picks.length} picks · ${D.draftId}`;
-$("packs").replaceChildren(...packs.map(n => { const b = document.createElement("button"); b.textContent = "Pack " + n; b.dataset.p = n;
-  b.onclick = () => { pack = n; pick = 1; render(); }; return b; }));
+function step(d) {
+  const idx = deckView ? D.picks.length : D.picks.indexOf(byKey.get(pack + "-" + pick));
+  const i = idx + d;
+  if (i === D.picks.length && D.deck) { deckView = true; pack = lastPack; render(); return; }
+  const q = D.picks[i]; if (q) { deckView = false; pack = q.pack; pick = q.pick; render(); }
+}
+$("sub").textContent = `${D.event || "Draft"} \u00b7 ${D.picks.length} picks \u00b7 ${D.draftId}`;
+const packBtns = packs.map(n => { const b = el("button", null, "Pack " + n); b.dataset.p = n;
+  b.onclick = () => { deckView = false; pack = n; pick = 1; render(); }; return b; });
+if (D.deck) { const b = el("button", null, "Deck"); b.dataset.p = "deck";
+  b.onclick = () => { deckView = true; pack = lastPack; render(); }; packBtns.push(b); }
+$("packs").replaceChildren(...packBtns);
+if (D.deck && location.hash === "#deck") { deckView = true; pack = lastPack; }
 for (const b of $("sort").children) b.onclick = () => { sort = b.dataset.s; render(); };
+$("copy").onclick = async () => { const b = $("copy");
+  try { await navigator.clipboard.writeText($("decktext").textContent); b.textContent = "Copied"; }
+  catch (e) { const r = document.createRange(); r.selectNodeContents($("decktext")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = "Selected"; }
+  setTimeout(() => { b.textContent = "Copy"; }, 1500); };
 $("showPicks").onchange = render; $("prev").onclick = () => step(-1); $("next").onclick = () => step(1);
 document.addEventListener("keydown", e => { if (e.key === "ArrowRight") step(1); else if (e.key === "ArrowLeft") step(-1); });
 render();

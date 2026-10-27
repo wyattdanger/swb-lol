@@ -28,6 +28,7 @@ DB_GLOB = os.path.expanduser(
 
 NOTIFY_RE = re.compile(r"Draft\.Notify (\{.*\})\s*$")
 PICK_RE = re.compile(r"==> EventPlayerDraftMakePick (\{.*\})\s*$")
+DECK_RE = re.compile(r"==> EventSetDeckV3 (\{.*\})\s*$")
 EVENT_RE = re.compile(r"==> DraftCompleteDraft (\{.*\})\s*$")
 
 
@@ -102,6 +103,15 @@ def parse(paths):
                     req = json.loads(json.loads(m.group(1))["request"])
                     dr = drafts.setdefault(req["DraftId"], {"packs": {}, "picks": {}, "event": None})
                     dr["picks"][(req["Pack"], req["Pick"])] = req["GrpIds"][0]
+                elif "==> EventSetDeckV3" in line:
+                    m = DECK_RE.search(line)
+                    if not m:
+                        continue
+                    req = json.loads(json.loads(m.group(1))["request"])
+                    for dr in reversed(drafts.values()):
+                        if dr["event"] == req.get("EventName"):
+                            dr["deck"] = req["Deck"]  # later submissions overwrite earlier ones
+                            break
                 elif "DraftCompleteDraft" in line and "==>" in line:
                     m = EVENT_RE.search(line)
                     if m and drafts:
@@ -131,7 +141,9 @@ def main():
             print(f"#   {d}  ({len(drafts[d]['picks'])} picks)", file=sys.stderr)
     dr = drafts[draft_id]
 
-    all_ids = {c for pack in dr["packs"].values() for c in pack} | set(dr["picks"].values())
+    deck = dr.get("deck")
+    deck_ids = {c["cardId"] for z in ("MainDeck", "Sideboard") for c in (deck or {}).get(z, [])}
+    all_ids = {c for pack in dr["packs"].values() for c in pack} | set(dr["picks"].values()) | deck_ids
     names = load_names(all_ids)
     name = lambda g: names.get(g, f"<unknown {g}>")
 
@@ -139,6 +151,9 @@ def main():
         meta = load_meta(all_ids)
         card = lambda g: {"name": name(g), **meta.get(g, {})}
         out = {"draftId": draft_id, "event": dr["event"], "picks": []}
+        if deck:
+            zone = lambda z: [{**card(c["cardId"]), "qty": c["quantity"]} for c in deck.get(z, [])]
+            out["deck"] = {"main": zone("MainDeck"), "side": zone("Sideboard")}
         for key in sorted(dr["packs"]):
             out["picks"].append({
                 "pack": key[0], "pick": key[1],
