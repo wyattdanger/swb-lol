@@ -94,6 +94,24 @@ h3.grp:first-child{margin-top:0}
 .sidegrid.sideimgs{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
 .sidegrid.sideimgs .sc{margin-top:0}
 .foot{color:var(--muted);font-size:.75rem}
+.matchgroups{display:flex;flex-wrap:wrap;gap:12px 28px;margin-bottom:12px}
+.mlabel{margin-bottom:6px;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.gametabs{display:flex;flex-wrap:wrap;gap:6px}
+.matchgroups>.gametabs{margin-bottom:0}
+.gametabs button{border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:6px;padding:6px 12px;font:inherit;font-size:.85rem;cursor:pointer}
+.gametabs button[aria-pressed="true"]{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600}
+.gmeta{color:var(--muted);font-size:.85rem;margin-bottom:10px}
+.open{display:flex;flex-direction:column;gap:8px;padding:10px;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:6px;font-size:.88rem}
+.openrow{display:flex;flex-wrap:nowrap;gap:6px}
+.openrow .ph{flex:1 1 0;min-width:0;max-width:160px;width:auto}
+.open .ol{color:var(--muted);font-family:var(--font-mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em}
+.turn{border-left:4px solid var(--line);padding:2px 0 2px 12px;margin-bottom:14px}
+.turn.you{border-left-color:var(--accent)}
+.turn .th{margin:0 0 4px;font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.turn.you .th{color:var(--accent)}
+.ev{padding:1px 0;font-size:.92rem}.ev.quiet{color:var(--muted)}
+.cref{border-bottom:1px dotted var(--muted);cursor:default}
+.pop{position:fixed;width:240px;border-radius:4.5%;box-shadow:0 8px 28px rgba(0,0,0,.45);z-index:20;pointer-events:none}
 .hint{color:var(--muted);font-size:.8rem}
 </style>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -102,9 +120,6 @@ h3.grp:first-child{margin-top:0}
   <div><h1>Draft Replay</h1><div class="sub" id="sub"></div></div>
   <div class="bar">
     <div class="seg" id="packs" role="group" aria-label="Pack"></div>
-    <div class="seg" id="sort" role="group" aria-label="Sort cards by">
-      <button data-s="color" aria-pressed="true">Color</button><button data-s="cost" aria-pressed="false">Mana value</button>
-    </div>
     <label class="chk"><input type="checkbox" id="showPicks" checked> Show picks</label>
     <label class="chk" id="imgsWrap" hidden><input type="checkbox" id="imgs" checked> Card images</label>
   </div>
@@ -117,12 +132,14 @@ h3.grp:first-child{margin-top:0}
 <p class="foot">Unofficial fan project. Card images via <a href="https://scryfall.com" style="color:inherit">Scryfall</a>; Magic: The Gathering is &copy; Wizards of the Coast.</p>
 </div>
 
+<img id="pop" class="pop" alt="" hidden>
+
 <script>
 const D = __DATA__;
 const $ = id => document.getElementById(id);
 const byKey = new Map(D.picks.map(p => [p.pack + "-" + p.pick, p]));
 const packs = [...new Set(D.picks.map(p => p.pack))];
-let pack = 1, pick = 1, sort = "color", deckView = false;
+let pack = 1, pick = 1, sort = "color", deckView = false, gamesView = false, gameIdx = 0;
 const lastPack = packs[packs.length - 1];
 const mv = c => { let n = 0; for (const m of (c.cost.match(/\{(\w)\}/g) || [])) { const v = m[1]; n += /\d/.test(v) ? +v : v === "X" ? 0 : 1; } return n; };
 const colorKey = c => c.colors.length > 1 ? "M" : (c.colors || (c.types.includes("Land") ? "L" : "C"));
@@ -178,6 +195,46 @@ function deckText() {
   const lands = D.deck.main.filter(c => c.types.includes("Land")).sort((x, y) => x.name.localeCompare(y.name));
   return ["Deck", ...nonland.map(line), ...lands.map(line), "", "Sideboard", ...D.deck.side.map(line)].join("\n");
 }
+const allGames = (D.games || []).flatMap(m => m.games.map(g => ({ m, g })));
+const bo1 = (D.games || []).every(m => m.games.length <= 1);
+const gameLabel = x => bo1 ? `Game ${x.m.match}` : `Match ${x.m.match} \u00b7 G${x.g.game}`;
+const won = x => x.g.result && x.g.result.winner === "You";
+function showPop(n, e) { const p = $("pop"); p.src = D.images[n]; p.hidden = false; movePop(e); }
+function movePop(e) { const p = $("pop"); p.style.left = Math.max(8, Math.min(e.clientX + 16, innerWidth - 256)) + "px"; p.style.top = Math.max(8, Math.min(e.clientY - 120, innerHeight - 350)) + "px"; }
+function hidePop() { $("pop").hidden = true; }
+function cref(n) { const s = el("span", "cref", n);
+  if (D.images && D.images[n]) { s.onmouseenter = e => showPop(n, e); s.onmousemove = movePop; s.onmouseleave = hidePop; } return s; }
+function evEl(text) { const d = el("div", "ev"); text.split(/\{\{(.+?)\}\}/).forEach((part, i) => d.append(i % 2 ? cref(part) : document.createTextNode(part))); return d; }
+function renderGames() {
+  const cur = allGames[gameIdx], g = cur.g;
+  const wins = allGames.filter(won).length, losses = allGames.length - wins;
+  const mw = D.games.filter(m => m.result === "won").length;
+  $("title").textContent = bo1 ? `Games \u00b7 ${wins}\u2013${losses}` : `Games \u00b7 ${mw}\u2013${D.games.length - mw} in matches`;
+  const wrap = el("div", "games"), tabs = el("div", "matchgroups");
+  const tab = (x, i, label) => { const b = el("button", null, `${label} \u00b7 ${won(x) ? "W" : "L"}`);
+    b.setAttribute("aria-pressed", i === gameIdx); b.onclick = () => { gameIdx = i; render(); }; return b; };
+  if (bo1) { const row = el("div", "gametabs"); allGames.forEach((x, i) => row.append(tab(x, i, gameLabel(x)))); tabs.append(row); }
+  else D.games.forEach(m => { const grp = el("div", "mgroup"), row = el("div", "gametabs");
+    grp.append(el("div", "mlabel", `Match ${m.match} \u00b7 ${m.result === "won" ? "Won" : "Lost"}`));
+    allGames.forEach((x, i) => { if (x.m === m) row.append(tab(x, i, `Game ${x.g.game}`)); });
+    grp.append(row); tabs.append(grp); });
+  const how = !g.result ? "unfinished" : g.result.reason === "Concede" ? `${g.result.winner === "You" ? "Opp" : "You"} conceded` : "played out";
+  const meta = el("div", "gmeta", `On the play: ${g.onPlay || "?"} \u00b7 ${g.result ? (g.result.winner === "You" ? "You won" : "Opp won") : "No result"} (${how})`);
+  wrap.append(tabs, meta);
+  if (g.opening.length) { const o = el("div", "open"), row = el("div", "openrow"); o.append(el("span", "ol", g.mulligans ? `Opening hand \u00b7 mulligan to ${g.opening.length}` : "Opening hand"), row);
+    g.opening.forEach(n => { const img = D.images && D.images[n];
+      if (!img) { row.append(cref(n)); return; }
+      const c = imgEl({ name: n, img }, () => cref(n));
+      c.onmouseenter = e => showPop(n, e); c.onmousemove = movePop; c.onmouseleave = hidePop; row.append(c); });
+    wrap.append(o); }
+  for (const t of g.turns) { const s = el("section", "turn " + (t.who === "You" ? "you" : "opp"));
+    s.append(el("h3", "th", `Turn ${Math.ceil(t.turn / 2)} \u00b7 ${t.who}`)); // Arena counts each player's turn; show rounds
+    if (t.events.length) t.events.forEach(e => s.append(evEl(e))); else s.append(el("div", "ev quiet", "No actions"));
+    wrap.append(s); }
+  $("grid").replaceChildren(wrap);
+  $("grid").classList.add("deckmode");
+  $("pool").replaceChildren(...g.opponentCards.map(n => { const li = el("li"); li.append(el("span", null, ""), cref(n)); return li; }));
+}
 function renderDeck() {
   $("title").textContent = `Final deck \u00b7 ${total(D.deck.main)} main, ${total(D.deck.side)} sideboard`;
   const byColor = (x, y) => ORDER.indexOf(colorKey(x)) - ORDER.indexOf(colorKey(y)) || x.name.localeCompare(y.name);
@@ -204,49 +261,53 @@ function renderDeck() {
 }
 function render() {
   const show = $("showPicks").checked;
-  $("sort").hidden = false;
   $("grid").classList.remove("deckmode"); $("grid").classList.remove("imgs"); $("imgsWrap").hidden = !hasImg;
-  if (deckView) renderDeck();
+  if (gamesView) renderGames();
+  else if (deckView) renderDeck();
   else {
     const p = byKey.get(pack + "-" + pick);
     $("title").textContent = `Pack ${pack}, pick ${pick} \u00b7 ${p.cards.length} card${p.cards.length > 1 ? "s" : ""}`;
     if (imgOn()) { $("grid").classList.add("imgs"); $("grid").replaceChildren(...sorted(p.cards).map(c => imgCell(c, show && c.name === p.picked))); }
     else $("grid").replaceChildren(...sorted(p.cards).map(c => cardEl(c, (c.name === p.picked ? " picked" : "") + (show ? " show" : ""))));
   }
-  $("sideTitle").textContent = deckView ? "Decklist" : "Picked so far";
+  $("sideTitle").textContent = gamesView ? "Opponent\u2019s cards" : deckView ? "Decklist" : "Picked so far";
   $("pool").hidden = deckView; $("decktext").hidden = !deckView; $("copy").hidden = !deckView;
   if (deckView) $("decktext").textContent = deckText();
-  const pool = deckView ? [] : D.picks.filter(q => q.pack < pack || (q.pack === pack && q.pick < pick) || (show && q.pack === pack && q.pick === pick));
-  $("pool").replaceChildren(...pool.map(q => { const li = el("li");
+  const pool = deckView || gamesView ? [] : D.picks.filter(q => q.pack < pack || (q.pack === pack && q.pick < pick) || (show && q.pack === pack && q.pick === pick));
+  if (!gamesView) $("pool").replaceChildren(...pool.map(q => { const li = el("li");
     li.append(el("span", null, `${q.pack}.${q.pick}`), el("span", null, q.picked)); return li; }));
-  for (const b of $("packs").children) b.setAttribute("aria-pressed", b.dataset.p === "deck" ? deckView : !deckView && +b.dataset.p === pack);
-  try { history.replaceState(null, "", deckView ? "#deck" : location.pathname + location.search); } catch (e) {}
-  for (const b of $("sort").children) b.setAttribute("aria-pressed", b.dataset.s === sort);
+  for (const b of $("packs").children) b.setAttribute("aria-pressed", b.dataset.p === "deck" ? deckView : b.dataset.p === "games" ? gamesView : !deckView && !gamesView && +b.dataset.p === pack);
+  try { history.replaceState(null, "", deckView ? "#deck" : gamesView ? "#games" : location.pathname + location.search); } catch (e) {}
   const n = D.picks.filter(q => q.pack === pack).length;
   const btns = Array.from({ length: n }, (_, i) => { const b = el("button", null, String(i + 1));
-    b.setAttribute("aria-label", `Pick ${i + 1}`); b.setAttribute("aria-pressed", !deckView && i + 1 === pick);
-    b.onclick = () => { deckView = false; pick = i + 1; render(); }; return b; });
+    b.setAttribute("aria-label", `Pick ${i + 1}`); b.setAttribute("aria-pressed", !deckView && !gamesView && i + 1 === pick);
+    b.onclick = () => { deckView = gamesView = false; pick = i + 1; render(); }; return b; });
   if (D.deck && pack === lastPack) { const b = el("button", "deckbtn", "Deck"); b.setAttribute("aria-pressed", deckView);
-    b.onclick = () => { deckView = true; render(); }; btns.push(b); }
+    b.onclick = () => { deckView = true; gamesView = false; render(); }; btns.push(b); }
+  if (allGames.length && pack === lastPack) { const b = el("button", "deckbtn", "Games"); b.setAttribute("aria-pressed", gamesView);
+    b.onclick = () => { gamesView = true; deckView = false; render(); }; btns.push(b); }
   $("picks").replaceChildren(...btns);
-  const idx = deckView ? D.picks.length : D.picks.indexOf(byKey.get(pack + "-" + pick));
-  const lastIdx = D.picks.length - 1 + (D.deck ? 1 : 0);
+  const idx = gamesView ? D.picks.length + 1 : deckView ? D.picks.length : D.picks.indexOf(byKey.get(pack + "-" + pick));
+  const lastIdx = D.picks.length - 1 + (D.deck ? 1 : 0) + (allGames.length ? 1 : 0);
   $("prev").disabled = idx === 0; $("next").disabled = idx === lastIdx;
 }
 function step(d) {
-  const idx = deckView ? D.picks.length : D.picks.indexOf(byKey.get(pack + "-" + pick));
+  const idx = gamesView ? D.picks.length + 1 : deckView ? D.picks.length : D.picks.indexOf(byKey.get(pack + "-" + pick));
   const i = idx + d;
-  if (i === D.picks.length && D.deck) { deckView = true; pack = lastPack; render(); return; }
-  const q = D.picks[i]; if (q) { deckView = false; pack = q.pack; pick = q.pick; render(); }
+  if (i === D.picks.length && D.deck) { deckView = true; gamesView = false; pack = lastPack; render(); return; }
+  if (i === D.picks.length + 1 && allGames.length) { gamesView = true; deckView = false; pack = lastPack; render(); return; }
+  const q = D.picks[i]; if (q) { deckView = gamesView = false; pack = q.pack; pick = q.pick; render(); }
 }
 $("sub").textContent = `${D.event || "Draft"} \u00b7 ${D.picks.length} picks \u00b7 ${D.draftId}`;
 const packBtns = packs.map(n => { const b = el("button", null, "Pack " + n); b.dataset.p = n;
-  b.onclick = () => { deckView = false; pack = n; pick = 1; render(); }; return b; });
+  b.onclick = () => { deckView = gamesView = false; pack = n; pick = 1; render(); }; return b; });
 if (D.deck) { const b = el("button", null, "Deck"); b.dataset.p = "deck";
-  b.onclick = () => { deckView = true; pack = lastPack; render(); }; packBtns.push(b); }
+  b.onclick = () => { deckView = true; gamesView = false; pack = lastPack; render(); }; packBtns.push(b); }
+if (allGames.length) { const b = el("button", null, "Games"); b.dataset.p = "games";
+  b.onclick = () => { gamesView = true; deckView = false; pack = lastPack; render(); }; packBtns.push(b); }
 $("packs").replaceChildren(...packBtns);
 if (D.deck && location.hash === "#deck") { deckView = true; pack = lastPack; }
-for (const b of $("sort").children) b.onclick = () => { sort = b.dataset.s; render(); };
+if (allGames.length && location.hash === "#games") { gamesView = true; pack = lastPack; }
 $("copy").onclick = async () => { const b = $("copy");
   try { await navigator.clipboard.writeText($("decktext").textContent); b.textContent = "Copied"; }
   catch (e) { const r = document.createRange(); r.selectNodeContents($("decktext")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = "Selected"; }

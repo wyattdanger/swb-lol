@@ -83,6 +83,8 @@ def load_meta(grp_ids):
     return meta
 
 
+from games import parse_games  # noqa: E402  (tools/ is on sys.path when run as a script)
+
 SCRYFALL_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scryfall_cache.json")
 
 
@@ -196,9 +198,15 @@ def main():
 
     if args.json or args.publish:
         meta = load_meta(all_ids)
-        imgs = scryfall_images({name(g) for g in all_ids if g in names})
+        game_data = parse_games([p for p in logs if os.path.exists(p)], dr["event"]) if dr["event"] else []
+        game_names = set(re.findall(r"\{\{(.+?)\}\}", json.dumps(game_data, ensure_ascii=False)))
+        game_names |= {n for m in game_data for g in m["games"] for n in g["opening"] + g["opponentCards"]}
+        imgs = scryfall_images({name(g) for g in all_ids if g in names} | game_names)
         card = lambda g: {"name": name(g), **meta.get(g, {}), **({"img": imgs[name(g)]} if name(g) in imgs else {})}
         out = {"draftId": draft_id, "event": dr["event"], "picks": []}
+        if game_data:
+            out["games"] = game_data
+            out["images"] = {n: imgs[n] for n in game_names if n in imgs}
         if deck:
             zone = lambda z: [{**card(c["cardId"]), "qty": c["quantity"]} for c in deck.get(z, [])]
             out["deck"] = {"main": zone("MainDeck"), "side": zone("Sideboard")}
