@@ -1,29 +1,29 @@
-// Specs for the viewer page script (tools/viewer.template.html).
-// Run with: node --test tests/*.test.js   (or tests/run.sh for everything)
+// Specs for the viewer page script (assets/viewer.js, assets/boot.js) and the draft page shell.
+// Run with tests/run.sh.
 //
-// The real page script runs against a tiny stub DOM, fed by the same synthetic draft the Python
-// specs use (tests/fixture.py), so nothing here needs a browser, Arena, or the network.
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+// The real page script runs against a tiny stub DOM, fed by the same synthetic draft the other specs use
+// (tests/fixture.mjs), so nothing here needs a browser, Arena, or the network.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { buildDraftData, parseDrafts } from '../tools/draft-replay.mjs';
+import { buildFixture } from './fixture.mjs';
 
-const ROOT = path.resolve(__dirname, '..');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VIEWER = fs.readFileSync(path.join(ROOT, 'assets', 'viewer.js'), 'utf8');
 const BOOT = fs.readFileSync(path.join(ROOT, 'assets', 'boot.js'), 'utf8');
 const SHELL = fs.readFileSync(path.join(ROOT, 'tools', 'shell.html'), 'utf8');
 const imgUrl = name => `https://img.test/${encodeURIComponent(name)}.jpg`;
 
-function fixtureData() {
+async function fixtureData() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'viewer-spec-'));
-  const build = spawnSync('python3', ['-c', 'import sys; sys.path.insert(0, "tests"); import fixture; fixture.build_all(sys.argv[1])', tmp], { cwd: ROOT });
-  assert.equal(build.status, 0, String(build.stderr));
-  const env = { ...process.env, ARENA_CARD_DB: path.join(tmp, 'cards.sqlite') };
-  const run = spawnSync('python3', ['tools/draft_replay.py', '--json', '--no-images', '--draft-id', 'D1', path.join(tmp, 'Player.log')], { cwd: ROOT, env });
-  assert.equal(run.status, 0, String(run.stderr));
-  const D = JSON.parse(String(run.stdout));
+  const { log, db } = buildFixture(tmp);
+  process.env.ARENA_CARD_DB = db;
+  const drafts = await parseDrafts([log]);
+  const D = JSON.parse(JSON.stringify(await buildDraftData(drafts.get('D1'), 'D1', { logs: [log], noImages: true })));
   // give every card an image so the image code paths run
   for (const p of D.picks) for (const c of p.cards) c.img = imgUrl(c.name);
   for (const z of ['main', 'side']) for (const c of D.deck[z]) c.img = imgUrl(c.name);
@@ -33,9 +33,10 @@ function fixtureData() {
     for (const x of [...(g.sideboard?.in || []), ...(g.sideboard?.out || [])]) names.add(x.n);
   }
   D.images = Object.fromEntries([...names].map(n => [n, imgUrl(n)]));
+  fs.rmSync(tmp, { recursive: true, force: true });
   return D;
 }
-const DATA = fixtureData();
+const DATA = await fixtureData();
 const clone = o => JSON.parse(JSON.stringify(o));
 
 // ---- stub DOM + page loader -------------------------------------------------------------------

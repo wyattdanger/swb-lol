@@ -4,3 +4,4 @@ tests
 docs
 README.md
 .playwright-mcp
+package.json

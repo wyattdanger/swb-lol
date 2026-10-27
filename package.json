@@ -1,0 +1,11 @@
+{
+  "name": "swb-lol",
+  "private": true,
+  "description": "swb.lol: a personal playground (static site on Vercel). No dependencies; this file just holds the scripts.",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "test": "tests/run.sh",
+    "serve": "node tools/serve.mjs",
+    "draft": "node --experimental-sqlite --disable-warning=ExperimentalWarning tools/draft-replay.mjs"
+  }
+}

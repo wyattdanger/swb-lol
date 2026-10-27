@@ -4,8 +4,9 @@ One project in the swb.lol playground (see the [root README](../README.md) for h
 It rebuilds each Magic: The Gathering Arena draft from Arena's local log files and shows it pack by pack, with
 the final deck and a turn-by-turn replay of every game. Live at `https://swb.lol/drafts/<n>`.
 
-There is no build step and no runtime dependency. Python (standard library only) turns Arena logs into a JSON
-file per draft; one shared, plain-JavaScript viewer renders any of them in the browser.
+There is no build step and no packages to install. Node (built-ins only: `node:sqlite`, `fetch`, `node:test`) turns
+Arena logs into a JSON file per draft; one shared, plain-JavaScript viewer renders any of them in the browser.
+Node 22.5 or newer; the `npm run` scripts pass the flags that older versions need for the built-in SQLite module.
 
 > **Agents:** read "Publish the latest draft" and "Gotchas" first. Run `tests/run.sh` before pushing. Never
 > commit raw Arena logs, and never put player usernames in anything you commit (see the root README's Privacy).
@@ -22,16 +23,16 @@ Do this on the Mac that ran Arena. The logs only exist there.
    `data.json` is permanent, so this only matters before you publish.)
 3. From the repo root:
    ```sh
-   python3 tools/draft_replay.py --publish .
+   npm run draft -- --publish .
    ```
    It reads both logs, takes the **latest** draft, and writes `drafts/<n>/data.json` and
    `drafts/<n>/index.html`. If the logs hold several drafts it lists them on stderr; pick one with
    `--draft-id <id>`. The first run for new cards needs internet (Scryfall image lookups, about 5 seconds);
    later runs use a local cache.
-4. **Look at it locally** (the page must be served over http; opening the file directly will not work; `serve.py` sends
+4. **Look at it locally** (the page must be served over http; opening the file directly will not work; `serve.mjs` sends
    no-cache headers because Safari otherwise keeps showing an old viewer script after you edit it):
    ```sh
-   python3 tools/serve.py           # then open http://127.0.0.1:8000/drafts/<n>/
+   npm run serve                     # then open http://127.0.0.1:8000/drafts/<n>/
    ```
 5. **Publish:**
    ```sh
@@ -44,33 +45,35 @@ A draft keeps its number if you republish it. A new draft gets the next free num
 ## How it works
 
 ```
-Arena logs ──> tools/draft_replay.py ──> drafts/<n>/data.json ──> assets/viewer.js (in the browser)
- (+ card DB)      tools/games.py            (committed)             renders picks, deck, games
+Arena logs ──> tools/draft-replay.mjs ──> drafts/<n>/data.json ──> assets/viewer.js (in the browser)
+ (+ card DB)      tools/games.mjs            (committed)             renders picks, deck, games
 ```
 
 | Path | What it is |
 | --- | --- |
-| `tools/draft_replay.py` | CLI. Parses picks, packs and the submitted deck; looks up card names and image URLs; writes the data file and the page shell. |
-| `tools/games.py` | Parses matches and games into per-turn narration. |
+| `tools/draft-replay.mjs` | CLI. Parses picks, packs and the submitted deck; looks up card names and image URLs; writes the data file and the page shell. |
+| `tools/games.mjs` | Parses matches and games into per-turn narration. |
+| `tools/arena.mjs`, `tools/scryfall.mjs` | Arena's files (logs, card database) and the Scryfall art lookup with its cache. |
+| `tools/serve.mjs` | The no-cache preview server (`npm run serve`). |
 | `tools/shell.html` | The tiny HTML page copied to every `drafts/<n>/index.html`. All draft pages are byte-identical. |
 | `assets/viewer.js`, `viewer.css` | The viewer, **shared by every draft**. Edit these and every draft changes; no rebuild. |
 | `assets/boot.js` | Fetches the draft's `data.json` (next to the page) and starts the viewer. |
 | `drafts/<n>/data.json` | One draft's data (schema below). The permanent record. |
 | `tools/scryfall_cache.json` | Gitignored cache of card name to image URL. Safe to delete. |
-| `tests/test_pipeline.py`, `tests/viewer.test.js`, `tests/fixture.py` | This project's specs and its synthetic Arena log. |
+| `tests/*.test.mjs`, `tests/fixture.mjs` | This project's specs and its synthetic Arena log. |
 
 ### Other commands
 
 ```sh
-python3 tools/draft_replay.py                    # plain-text replay of the latest draft
-python3 tools/draft_replay.py --json --no-images # the data as JSON on stdout (never written to the repo)
-python3 tools/draft_replay.py --rebuild .        # rewrite every page shell from tools/shell.html (no logs needed)
+npm run draft                                    # plain-text replay of the latest draft
+npm run draft -- --json --no-images              # the data as JSON on stdout (never written to the repo)
+npm run draft -- --rebuild .                     # rewrite every page shell from tools/shell.html (no logs needed)
 ```
 
 You only need `--rebuild` if `tools/shell.html` itself changes. Viewer changes need nothing.
 
 ```sh
-python3 tools/draft_replay.py --refresh-images .   # re-pick every card's image URL from the names saved in each data.json
+npm run draft -- --refresh-images .              # re-pick every card's image URL from the names saved in each data.json
 ```
 
 Use `--refresh-images` after changing the art rules (`OLDEST_FILTERS` / `PINNED_SETS`) or if Scryfall moves an image.
@@ -107,7 +110,7 @@ the literal string `"Opp"`.
 - **Links:** the URL hash follows navigation: `#pick-<pack>-<pick>`, `#deck`, `#games`, `#game-<match>-<game>`.
   Pasting one into the address bar jumps there.
 - **Card art:** each card shows its oldest non-promo printing (promos can predate a card's first real set),
-  skipping Alpha and Beta so those cards show Unlimited (`OLDEST_FILTERS` in `tools/draft_replay.py`). Basic lands are pinned to the full-art Unhinged printings; `PINNED_SETS` in `tools/draft_replay.py` is the table
+  skipping Alpha and Beta so those cards show Unlimited (`OLDEST_FILTERS` in `tools/scryfall.mjs`). Basic lands are pinned to the full-art Unhinged printings; `PINNED_SETS` in `tools/scryfall.mjs` is the table
   to edit. Changing a pin makes the next run re-look-up just those cards.
 - **Images:** loaded from Scryfall's CDN, never stored here. Cards show their name until the image arrives. The
   next pack's images are preloaded in the background (skipped when the browser asks to save data).
@@ -145,7 +148,7 @@ These are real log behaviors that each caused a bug. The specs cover them; the r
 
 ## Specs
 
-Run them with `tests/run.sh` (see the root README). `tests/fixture.py` builds a small synthetic Arena log and
+Run them with `tests/run.sh` (see the root README). `tests/fixture.mjs` builds a small synthetic Arena log and
 card database in a temp folder, shaped like the real thing: a best-of-3 with a mulligan and a sideboard swap, and
 the exact line layouts that broke the parser before. The viewer specs run the real `assets/viewer.js` against a
 stub DOM, so they test logic, **not how it looks**; check visuals in a browser.
@@ -154,7 +157,7 @@ One extra spec checks the author's real Oct 26 draft against hand-verified numbe
 other machine or once Arena rotates that log out.
 
 Test hooks in the code: `ARENA_CARD_DB` overrides the card database path; `--no-images` skips Scryfall.
-When fixing a parser bug, add a case to `tests/fixture.py` that reproduces it first, then fix.
+When fixing a parser bug, add a case to `tests/fixture.mjs` that reproduces it first, then fix.
 
 ## Privacy specifics
 
